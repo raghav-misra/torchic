@@ -39,6 +39,19 @@ export class Tensor {
         return Tensor.create(shape, requiresGrad, 'RANDN');
     }
 
+    static fromData(data: Float32Array | number[], shape: number[], requiresGrad: boolean = false): Tensor {
+        const size = shape.reduce((a, b) => a * b, 1) * 4;
+        const id = Dispatcher.instance.nextTensorId();
+        
+        Dispatcher.instance.allocate(id, size);
+        
+        // Convert to Float32Array if needed
+        const typedData = data instanceof Float32Array ? data : new Float32Array(data);
+        Dispatcher.instance.write(id, typedData);
+
+        return new Tensor(id, shape, requiresGrad);
+    }
+
     private static create(shape: number[], requiresGrad: boolean, op: string, params: any = {}): Tensor {
         const size = shape.reduce((a, b) => a * b, 1) * 4; // 4 bytes per float
         const id = Dispatcher.instance.nextTensorId();
@@ -77,6 +90,56 @@ export class Tensor {
 
     log(): Tensor {
         return this.runUnaryOp('LOG');
+    }
+
+    setValue(indices: number[], value: number) {
+        // Calculate flat index
+        let flatIndex = 0;
+        let stride = 1;
+        for (let i = this.shape.length - 1; i >= 0; i--) {
+            flatIndex += indices[i] * stride;
+            stride *= this.shape[i];
+        }
+        
+        Dispatcher.instance.set(this.id, flatIndex, value);
+   }
+
+    async getValue(indices: number[]): Promise<number> {
+        // Calculate flat index
+        let flatIndex = 0;
+        let stride = 1;
+        for (let i = this.shape.length - 1; i >= 0; i--) {
+            flatIndex += indices[i] * stride;
+            stride *= this.shape[i];
+        }
+        
+        return await Dispatcher.instance.readValue(this.id, flatIndex);
+    }
+
+    matmul(other: Tensor): Tensor {
+        if (this.shape.length !== 2 || other.shape.length !== 2) {
+            throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);
+        }
+        if (this.shape[1] !== other.shape[0]) {
+            throw new Error(`Shape mismatch for MatMul: ${this.shape} vs ${other.shape}`);
+        }
+
+        const m = this.shape[0];
+        const k = this.shape[1];
+        const n = other.shape[1];
+        const outShape = [m, n];
+
+        const outId = Dispatcher.instance.nextTensorId();
+        const size = m * n * 4;
+        
+        Dispatcher.instance.allocate(outId, size);
+        Dispatcher.instance.runOp('MATMUL', [this.id, other.id], outId, { m, n, k });
+
+        const out = new Tensor(outId, outShape, this.requiresGrad || other.requiresGrad);
+        out.op = 'MATMUL';
+        out.prev = [this, other];
+        
+        return out;
     }
 
     // --- Data Access ---

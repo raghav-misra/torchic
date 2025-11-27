@@ -128,6 +128,20 @@ export class Dispatcher {
         });
     }
 
+    set(tensorId: string, offset: number, value: number): void {
+        this.postToCoordinator({
+            type: 'SET',
+            payload: { id: tensorId, offset, value }
+        });
+    }
+
+    write(tensorId: string, data: Float32Array): void {
+        this.postToCoordinator({
+            type: 'WRITE',
+            payload: { id: tensorId, data }
+        });
+    }
+
     read(tensorId: string): Promise<Float32Array> {
         return new Promise((resolve) => {
             const reqId = this.generateId();
@@ -139,6 +153,21 @@ export class Dispatcher {
                 type: 'READ',
                 id: reqId,
                 payload: { id: tensorId }
+            });
+        });
+    }
+
+    readValue(tensorId: string, offset: number): Promise<number> {
+        return new Promise((resolve) => {
+            const reqId = this.generateId();
+            this.callbacks.set(reqId, (data) => {
+                resolve(data.value);
+            });
+
+            this.postToCoordinator({
+                type: 'READ_VALUE',
+                id: reqId,
+                payload: { id: tensorId, offset }
             });
         });
     }

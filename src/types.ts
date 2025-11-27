@@ -8,8 +8,11 @@ export type CoordinatorRequest =
     | { type: 'ADD_WORKER', payload: { workerId: number } } // Transfer port in second arg
     | { type: 'ALLOC', payload: { id: TensorId, size: number } }
     | { type: 'FREE', payload: { id: TensorId } }
+    | { type: 'SET', payload: { id: TensorId, offset: number, value: number } }
+    | { type: 'WRITE', payload: { id: TensorId, data: Float32Array } }
     | { type: 'OP', id?: string, payload: { op: string, inputs: TensorId[], output: TensorId, params?: any } }
-    | { type: 'READ', id: string, payload: { id: TensorId } };
+    | { type: 'READ', id: string, payload: { id: TensorId } }
+    | { type: 'READ_VALUE', id: string, payload: { id: TensorId, offset: number } };
 
 export type CoordinatorResponse = 
     | { id: string, data: any, error?: string };
