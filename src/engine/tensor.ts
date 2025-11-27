@@ -29,6 +29,7 @@ export interface OpParams {
   strides?: number[];
   stridesA?: number[];
   stridesB?: number[];
+  embeddingDim?: number;
 }
 
 export class Tensor {
@@ -43,6 +44,27 @@ export class Tensor {
   op: string | null = null;
   prev: Tensor[] = [];
   params: OpParams = {};
+  isDisposed: boolean = false;
+
+  // Manual memory management tracking
+  private static _activeTracking: Set<Tensor> | null = null;
+
+  static startTracking() {
+    if (Tensor._activeTracking) {
+      throw new Error("Nested tracking not supported yet");
+    }
+    Tensor._activeTracking = new Set();
+  }
+
+  static endTracking() {
+    const tracked = Tensor._activeTracking;
+    Tensor._activeTracking = null;
+    if (tracked) {
+      for (const t of tracked) {
+        t.dispose();
+      }
+    }
+  }
 
   constructor(
     id: string,
@@ -57,7 +79,18 @@ export class Tensor {
     this.requiresGrad = requiresGrad;
 
     // Register for automatic cleanup when this JS object is GC'd
-    registry.register(this, this.id);
+    registry.register(this, this.id, this);
+
+    if (Tensor._activeTracking) {
+      Tensor._activeTracking.add(this);
+    }
+  }
+
+  dispose() {
+    if (this.isDisposed) return;
+    this.isDisposed = true;
+    registry.unregister(this);
+    Dispatcher.instance.free(this.id);
   }
 
   private static computeStrides(shape: number[]): number[] {
@@ -105,9 +138,9 @@ export class Tensor {
 
   // --- Initialization ---
 
-  static async init(threads: number = 4) {
+  static async init(threads: number = 4, memoryMB: number = 256) {
     // We don't pass a path here, letting Dispatcher use its default relative path to worker.ts
-    await Dispatcher.instance.init(undefined, threads);
+    await Dispatcher.instance.init(undefined, threads, memoryMB);
   }
 
   static zeros(shape: number[], requiresGrad: boolean = false): Tensor {
@@ -260,6 +293,34 @@ export class Tensor {
     return out;
   }
 
+  embedding(indices: Tensor): Tensor {
+    if (this.shape.length !== 2) {
+      throw new Error(`Embedding weights must be 2D, got ${this.shape}`);
+    }
+
+    const embeddingDim = this.shape[1];
+    const outShape = [...indices.shape, embeddingDim];
+
+    const outId = Dispatcher.instance.nextTensorId();
+    const size = outShape.reduce((a, b) => a * b, 1) * 4;
+
+    Dispatcher.instance.allocate(outId, size);
+    Dispatcher.instance.runOp("EMBEDDING", [this.id, indices.id], outId, {
+      embeddingDim,
+    });
+
+    const shouldGrad = GradMode.enabled && this.requiresGrad;
+    const out = new Tensor(outId, outShape, shouldGrad);
+
+    if (shouldGrad) {
+      out.op = "EMBEDDING";
+      out.prev = [this, indices];
+      out.params = { embeddingDim };
+    }
+
+    return out;
+  }
+
   transpose(): Tensor {
     if (this.shape.length !== 2) {
       throw new Error("Transpose only supported for 2D tensors");
@@ -384,6 +445,26 @@ export class Tensor {
         const [a, b] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.matmul(b.transpose()));
         if (b.requiresGrad) b.addGrad(a.transpose().matmul(v.grad));
+      } else if (v.op === "EMBEDDING") {
+        const [weights, indices] = v.prev;
+        if (weights.requiresGrad) {
+          const gradWeightsId = Dispatcher.instance.nextTensorId();
+          const size = weights.numElements() * 4;
+          Dispatcher.instance.allocate(gradWeightsId, size);
+          Dispatcher.instance.runOp("FILL", [], gradWeightsId, { value: 0 });
+
+          Dispatcher.instance.runOp(
+            "EMBEDDING_BACKWARD",
+            [indices.id, v.grad.id],
+            gradWeightsId,
+            {
+              embeddingDim: v.params.embeddingDim,
+            }
+          );
+
+          const gradWeights = new Tensor(gradWeightsId, weights.shape, false);
+          weights.addGrad(gradWeights);
+        }
       } else if (v.op === "TRANSPOSE") {
         const [a] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.transpose());

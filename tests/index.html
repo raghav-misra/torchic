@@ -1,18 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Torchic Test</title>
     <!-- COOP/COEP headers are required for SharedArrayBuffer -->
     <!-- But we can't set headers in a static HTML file without a server. -->
     <!-- We'll need a simple server script. -->
-</head>
-<body>
-    <div style="font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
-        <h1>Torchic Test Suite</h1>
-        <div id="test-container"></div>
+  </head>
+  <body>
+    <div
+      style="
+        font-family: system-ui, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      "
+    >
+      <h1>Torchic Test Suite</h1>
+      <div id="test-container"></div>
     </div>
-    <script type="module" src="./test.ts"></script>
-</body>
+    <!-- <script type="module" src="./test.ts"></script> -->
+    <script type="module" src="./makemore.ts"></script>
+  </body>
 </html>

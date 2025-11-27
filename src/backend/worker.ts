@@ -3,6 +3,7 @@ import * as elementwise from "../kernels/elementwise";
 import * as matmul from "../kernels/matmul";
 import * as transpose from "../kernels/transpose";
 import * as reductions from "../kernels/reductions";
+import * as embedding from "../kernels/embedding";
 import { defineWorkerOnMessage } from "../utils";
 import {
   CoordinatorRequest,
@@ -270,6 +271,29 @@ async function handleOp(
       return;
   }
 
+  // Special Handling for EMBEDDING_BACKWARD (Single Worker to avoid race conditions)
+  if (payload.op === 'EMBEDDING_BACKWARD') {
+      const taskId = Math.random().toString(36).substring(7);
+      const donePromise = new Promise<void>((resolve) => {
+          pendingTasks.set(taskId, { resolve, count: 1 });
+      });
+
+      computePorts[0].postMessage({
+          type: "EXECUTE_TASK",
+          taskId,
+          op: payload.op,
+          inputs: inputMetas.map((m) => ({ offset: m!.offset, size: m!.size })),
+          output: { offset: outputMeta!.offset, size: outputMeta!.size },
+          params: payload.params,
+          workerIndex: 0,
+          totalWorkers: 1,
+      });
+
+      await donePromise;
+      if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+      return;
+  }
+
   // 2. Split the work (Sharding Logic)
   const taskId = Math.random().toString(36).substring(7);
 
@@ -483,6 +507,12 @@ function executeKernel(
       break;
     case "MATERIALIZE":
       elementwise.materialize(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
+    case "EMBEDDING":
+      embedding.embedding(inputViews[0], inputViews[1], outputView, params.embeddingDim, start, end);
+      break;
+    case "EMBEDDING_BACKWARD":
+      embedding.embedding_backward(outputView, inputViews[0], inputViews[1], params.embeddingDim, start, end);
       break;
     default:
       console.error(`Unknown op: ${op}`);
