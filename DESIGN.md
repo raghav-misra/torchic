@@ -13,6 +13,11 @@ Ideally this can be used to create a fun toy neural network designer and executo
   * **Client-Side Training:** Training small models (MLPs, baby Transformers) directly in the browser without a Python backend.
   * **Visualization:** Since the training loop runs in JS, it can be tightly coupled with React/Canvas for real-time visualization of weights and gradients during training.
 
+**Core Philosophy:**
+*   **CPU Only:** We focus on squeezing performance out of the CPU using multi-threading and SIMD (via Wasm if we get there, but JS for now).
+*   **Sharding:** Large operations are split across multiple workers. Since we use `SharedArrayBuffer`, data transfer is zero-cost; we just pass pointers.
+*   **Async Execution:** The main thread never blocks on math.
+
 
 ## Component Summary
 
@@ -43,7 +48,7 @@ A handle to data living in the backend. Operations on Tensors return new Tensors
       * `shape`: `number[]` (e.g., `[32, 784]`)
       * `requiresGrad`: `boolean`
       * `grad`: `Tensor | null`
-      * `device`: `'cpu' | 'webgl'` (Future proofing)
+      * `device`: `'cpu'` (Fixed for now)
 
   * **Methods:**
 
@@ -77,17 +82,23 @@ The bridge between the clean API and the messy threading.
 
 Since we use a flat `SharedArrayBuffer`, we need a custom memory manager (a simplified C-style `malloc`).
 
-  * **Location:** Lives in the **Worker**. The Main thread only knows "Tensor ID 5", the Worker knows "Tensor ID 5 starts at byte 1024."
-  * **Strategy:** For this project, a **Simple Bump Allocator** with a "Reset" capability is sufficient.
-      * `allocate(size)`: Returns an offset index and increments the pointer.
-      * `free()`: (Advanced) Marks blocks as reusable.
+  * **Location:** Lives in the **Primary Worker** (Worker 0). The Main thread only knows "Tensor ID 5", the Worker knows "Tensor ID 5 starts at byte 1024."
+  * **Strategy:** A **Free List Allocator**.
+      * We maintain a list of free memory blocks.
+      * `allocate(size)`: Finds the best-fit block or extends the heap.
+      * `free(offset, size)`: Merges the block back into the free list.
+  * **GC Integration:** The Main Thread uses `FinalizationRegistry` to track when a `Tensor` object is garbage collected. It then sends a `FREE` command to the worker to reclaim the memory.
 
 ### 4.3 The Kernel Library
 
 The actual math logic.
 
   * **Optimization:** Uses 1D array loop logic.
-  * **Parallelism:** For operations like `matmul`, the Kernel calculates how to split rows across multiple workers (sharding) based on the input shape.
+  * **Parallelism (Sharding):**
+      * **Coordinator:** Worker 0 receives the command (e.g., `MatMul`).
+      * **Splitting:** It calculates split points (e.g., rows 0-50 to Worker 1, rows 51-100 to Worker 2).
+      * **Synchronization:** It uses `Atomics` or a secondary message channel to trigger other workers.
+      * **Zero-Copy:** Since all workers share the same `SharedArrayBuffer`, no data is copied. They just read/write to different offsets.
 
 -----
 
@@ -217,6 +228,11 @@ Adapt the `micrograd` approach.
   * **Initialization:** `new SharedArrayBuffer(1024 * 1024 * 256)` (256MB).
   * **Structure:**
       * The buffer is just a sea of bytes.
-      * The `MemoryAllocator` class maintains a pointer `currentOffset`.
-      * When `ALLOC` is received: `offset = currentOffset; currentOffset += size`.
-      * It returns `new Float32Array(buffer, offset, size)`.
+      * **Header:** The first few bytes might be reserved for global synchronization (e.g., `Atomics` counters for barriers).
+      * **Heap:** The rest is managed by the `MemoryAllocator`.
+  * **Lifecycle:**
+      1.  `new Tensor()` (Main Thread) -> `ALLOC` command (Worker).
+      2.  Worker finds space, returns nothing (async).
+      3.  ... Math happens ...
+      4.  `Tensor` GC'd (Main Thread) -> `FREE` command (Worker).
+      5.  Worker marks space as free.
