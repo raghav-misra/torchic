@@ -1,6 +1,8 @@
 import { MemoryAllocator } from "./memory";
 import * as elementwise from "../kernels/elementwise";
 import * as matmul from "../kernels/matmul";
+import * as transpose from "../kernels/transpose";
+import * as reductions from "../kernels/reductions";
 import { defineWorkerOnMessage, definePortOnMessage } from "../utils";
 import {
   CoordinatorRequest,
@@ -192,8 +194,66 @@ async function handleOp(
     return;
   }
 
-  // 2. Split the work (Sharding Logic)
   const numWorkers = computePorts.length;
+
+  // Special Handling for SUM (Coordinator Logic)
+  if (payload.op === 'SUM') {
+      if (!memoryAllocator) return;
+      
+      // 1. Allocate Temp Buffer for Partial Sums
+      const tempSize = numWorkers * 4;
+      const tempOffset = memoryAllocator.allocate(tempSize);
+      
+      // 2. Dispatch SUM_PARTIAL
+      const taskId1 = Math.random().toString(36).substring(7);
+      const donePromise1 = new Promise<void>((resolve) => {
+          pendingTasks.set(taskId1, { resolve, count: numWorkers });
+      });
+
+      computePorts.forEach((port, index) => {
+          port.postMessage({
+              type: "EXECUTE_TASK",
+              taskId: taskId1,
+              op: "SUM_PARTIAL",
+              inputs: [{ offset: inputMetas[0]!.offset, size: inputMetas[0]!.size }],
+              output: { offset: tempOffset, size: tempSize }, // Workers write to specific index here
+              params: { outIndex: index },
+              workerIndex: index,
+              totalWorkers: numWorkers,
+          });
+      });
+
+      await donePromise1;
+
+      // 3. Dispatch SUM_FINAL (Single Worker)
+      const taskId2 = Math.random().toString(36).substring(7);
+      const donePromise2 = new Promise<void>((resolve) => {
+          pendingTasks.set(taskId2, { resolve, count: 1 });
+      });
+
+      computePorts[0].postMessage({
+          type: "EXECUTE_TASK",
+          taskId: taskId2,
+          op: "SUM_FINAL",
+          inputs: [{ offset: tempOffset, size: tempSize }],
+          output: { offset: outputMeta!.offset, size: outputMeta!.size },
+          params: { n: numWorkers },
+          workerIndex: 0,
+          totalWorkers: 1,
+      });
+
+      await donePromise2;
+
+      // 4. Free Temp
+      memoryAllocator.free(tempOffset, tempSize);
+
+      if (reqId) {
+          self.postMessage({ id: reqId, data: { status: "done" } });
+      }
+      return;
+  }
+
+  // 2. Split the work (Sharding Logic)
   const taskId = Math.random().toString(36).substring(7);
 
   const donePromise = new Promise<void>((resolve) => {
@@ -306,6 +366,54 @@ function executeKernel(
     return;
   }
 
+  // Special handling for Transpose
+  if (op === "TRANSPOSE") {
+    const { m, n } = params; // Input shape [m, n], Output shape [n, m]
+    // We shard the OUTPUT rows (0 to n)
+    const rowsPerWorker = Math.ceil(n / totalWorkers);
+    const startRow = workerIndex * rowsPerWorker;
+    const endRow = Math.min(startRow + rowsPerWorker, n);
+
+    if (startRow < n) {
+      transpose.transpose(
+        inputViews[0],
+        outputView,
+        m,
+        n,
+        startRow,
+        endRow
+      );
+    }
+    return;
+  }
+
+  if (op === "SUM_PARTIAL") {
+      // Input: Large array
+      // Output: Small array (size = numWorkers)
+      // We write to output[params.outIndex]
+      // We sum input[start...end]
+      
+      // Re-calculate start/end for the INPUT array
+      const totalElements = inputViews[0].length;
+      const chunkSize = Math.ceil(totalElements / totalWorkers);
+      const start = workerIndex * chunkSize;
+      const end = Math.min(start + chunkSize, totalElements);
+
+      if (start < totalElements) {
+          reductions.sum_partial(inputViews[0], outputView, params.outIndex, start, end);
+      } else {
+          outputView[params.outIndex] = 0;
+      }
+      return;
+  }
+
+  if (op === "SUM_FINAL") {
+      // Input: Small array (partial sums)
+      // Output: Scalar (size 1)
+      reductions.sum_final(inputViews[0], outputView, params.n);
+      return;
+  }
+
   // Default: Element-wise (Flat sharding)
   const totalElements = outputView.length;
   const chunkSize = Math.ceil(totalElements / totalWorkers);
@@ -316,19 +424,22 @@ function executeKernel(
 
   switch (op) {
     case "ADD":
-      elementwise.add(inputViews[0], inputViews[1], outputView, start, end);
+      elementwise.add(inputViews[0], inputViews[1], outputView, start, end, params.shape, params.stridesA, params.stridesB);
       break;
     case "SUB":
-      elementwise.sub(inputViews[0], inputViews[1], outputView, start, end);
+      elementwise.sub(inputViews[0], inputViews[1], outputView, start, end, params.shape, params.stridesA, params.stridesB);
       break;
     case "MUL":
-      elementwise.mul(inputViews[0], inputViews[1], outputView, start, end);
+      elementwise.mul(inputViews[0], inputViews[1], outputView, start, end, params.shape, params.stridesA, params.stridesB);
       break;
     case "DIV":
-      elementwise.div(inputViews[0], inputViews[1], outputView, start, end);
+      elementwise.div(inputViews[0], inputViews[1], outputView, start, end, params.shape, params.stridesA, params.stridesB);
       break;
     case "RELU":
       elementwise.relu(inputViews[0], outputView, start, end);
+      break;
+    case "RELU_BACKWARD":
+      elementwise.relu_backward(inputViews[0], inputViews[1], outputView, start, end);
       break;
     case "EXP":
       elementwise.exp(inputViews[0], outputView, start, end);
@@ -341,6 +452,9 @@ function executeKernel(
       break;
     case "RANDN":
       elementwise.randn(outputView, start, end);
+      break;
+    case "ADD_SCALAR_TENSOR":
+      reductions.add_scalar_tensor(inputViews[0], inputViews[1], outputView, start, end);
       break;
     default:
       console.error(`Unknown op: ${op}`);
