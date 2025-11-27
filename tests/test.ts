@@ -1,98 +1,5 @@
 import { Tensor, noGrad } from "../src/index";
-
-const container = document.getElementById("test-container");
-
-async function addTest(name: string, fn: () => Promise<[boolean, string]>) {
-  if (!container) return;
-
-  const details = document.createElement("details");
-  details.open = true;
-  details.style.marginBottom = "10px";
-  details.style.border = "1px solid #ccc";
-  details.style.borderRadius = "4px";
-  details.style.padding = "10px";
-
-  const summary = document.createElement("summary");
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "bold";
-  summary.textContent = `⏳ ${name}`;
-
-  const content = document.createElement("div");
-  content.style.marginTop = "10px";
-  content.style.fontFamily = "monospace";
-  content.style.whiteSpace = "pre-wrap";
-  content.textContent = "Running...";
-
-  details.appendChild(summary);
-  details.appendChild(content);
-  container.appendChild(details);
-
-  try {
-    const [success, message] = await fn();
-    if (success) {
-      summary.textContent = `✅ ${name}`;
-      summary.style.color = "green";
-      details.style.borderColor = "green";
-      details.style.backgroundColor = "#f0fff4";
-      content.textContent = message || "Passed";
-    } else {
-      summary.textContent = `❌ ${name}`;
-      summary.style.color = "red";
-      details.style.borderColor = "red";
-      details.style.backgroundColor = "#fff5f5";
-      content.textContent = message || "Failed";
-    }
-  } catch (e: any) {
-    summary.textContent = `❌ ${name}`;
-    summary.style.color = "red";
-    details.style.borderColor = "red";
-    details.style.backgroundColor = "#fff5f5";
-    content.textContent = `Exception: ${e.message}\n${e.stack}`;
-  }
-}
-
-async function addInfo(
-  name: string,
-  fn: (log: (msg: string) => void) => Promise<void>
-) {
-  if (!container) return;
-
-  const details = document.createElement("details");
-  details.open = true;
-  details.style.marginBottom = "10px";
-  details.style.border = "1px solid #90cdf4"; // Light blue border
-  details.style.borderRadius = "4px";
-  details.style.padding = "10px";
-  details.style.backgroundColor = "#ebf8ff"; // Light blue background
-
-  const summary = document.createElement("summary");
-  summary.style.cursor = "pointer";
-  summary.style.fontWeight = "bold";
-  summary.textContent = `ℹ️ ${name}`;
-  summary.style.color = "#2b6cb0"; // Darker blue text
-
-  const content = document.createElement("div");
-  content.style.marginTop = "10px";
-  content.style.fontFamily = "monospace";
-  content.style.whiteSpace = "pre-wrap";
-  content.textContent = "";
-
-  details.appendChild(summary);
-  details.appendChild(content);
-  container.appendChild(details);
-
-  const log = (msg: string) => {
-    content.textContent += msg + "\n";
-  };
-
-  try {
-    await fn(log);
-  } catch (e: any) {
-    log(`❌ Error: ${e.message}\n${e.stack}`);
-    details.style.borderColor = "red";
-    details.style.backgroundColor = "#fff5f5";
-  }
-}
+import { addTest, addInfo } from "./testUtils";
 
 async function runTests() {
   await addTest("Initialization", async () => {
@@ -292,50 +199,72 @@ async function runTests() {
     // b: [3]
     // y = x + b
     // loss = y.sum()
-    
+
     const x = Tensor.fromData([1, 1, 1, 1, 1, 1], [2, 3], true);
     const b = Tensor.fromData([2, 2, 2], [3], true);
-    
+
     const y = x.add(b);
     const loss = y.sum();
-    
+
     loss.backward();
-    
+
     if (!x.grad || !b.grad) return [false, "Gradients missing"];
-    
+
     const xGrad = await x.grad.toArray();
     const bGrad = await b.grad.toArray();
-    
+
     // x.grad should be all 1s (shape [2, 3])
-    const xOk = xGrad.every(v => Math.abs(v - 1.0) < 1e-4);
-    
+    const xOk = xGrad.every((v) => Math.abs(v - 1.0) < 1e-4);
+
     // b.grad should be all 2s (shape [3]) because it was broadcasted across dim 0 (size 2)
-    const bOk = bGrad.every(v => Math.abs(v - 2.0) < 1e-4);
-    
+    const bOk = bGrad.every((v) => Math.abs(v - 2.0) < 1e-4);
+
     if (!xOk) return [false, `x.grad failed. Expected all 1s, got ${xGrad}`];
     if (!bOk) return [false, `b.grad failed. Expected all 2s, got ${bGrad}`];
-    
+
     return [true, "Broadcasting gradients correct"];
   });
 
   await addTest("noGrad Mode", async () => {
     const x = Tensor.fromData([2], [1], true);
-    
+
     let y: Tensor;
     noGrad(() => {
-        y = x.mul(x);
+      y = x.mul(x);
     });
-    
+
     // y should not require grad
     if (y!.requiresGrad) return [false, "y.requiresGrad should be false"];
     if (y!.op !== null) return [false, "y.op should be null"];
-    
+
     // Backward should do nothing (or at least not crash, but since requiresGrad is false it returns early)
     y!.backward();
-    
+
     if (x.grad) return [false, "x.grad should be null"];
-    
+
     return [true, "noGrad works"];
+  });
+
+  await addTest("Reshape", async () => {
+    const a = Tensor.fromData([1, 2, 3, 4, 5, 6], [2, 3], true);
+    const b = a.reshape([3, 2]);
+
+    const bData = await b.toArray();
+    // Should be same data, different shape
+    const match = bData.every((v, i) => v === i + 1);
+    if (!match) return [false, "Reshape data mismatch"];
+
+    // Backward
+    const loss = b.sum();
+    loss.backward();
+
+    if (!a.grad) return [false, "Grad missing"];
+    const grad = await a.grad.toArray();
+
+    // Grad of sum is 1s. Reshape back to [2, 3] is still 1s.
+    const gradMatch = grad.every((v) => v === 1);
+
+    return [gradMatch, "Reshape forward/backward correct"];
   });
 
   await addTest("Broadcasting (Add)", async () => {
@@ -401,6 +330,152 @@ async function runTests() {
     const arePositive = probsData.every((p) => p >= 0);
 
     return [isSumOne && arePositive, `Sum: ${sumProbs}, Probs: [${probsData}]`];
+  });
+
+  await addTest("Linear Regression (y = 2x + 1)", async (log) => {
+    log("Target Function: y = 2x + 1");
+    log("Generating synthetic data (N=20)...");
+
+    // Generate Data
+    const N = 20;
+    const X_data = new Float32Array(N);
+    const Y_data = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      const val = Math.random() * 10;
+      X_data[i] = val;
+      Y_data[i] = 2 * val + 1 + (Math.random() - 0.5) * 0.1; // Add small noise
+    }
+
+    const x = Tensor.fromData(X_data, [N, 1]);
+    const y_true = Tensor.fromData(Y_data, [N, 1]);
+
+    log(`X-values: ${JSON.stringify(await x.toArray(), null, 2)}`);
+
+    log(`Y-values: ${JSON.stringify(await y_true.toArray(), null, 2)}`);
+
+    // Initialize Parameters
+    const w = Tensor.randn([1, 1], true);
+    const b = Tensor.zeros([1], true);
+
+    log(
+      `Initial w: ${(await w.item()).toFixed(4)}, b: ${(await b.item()).toFixed(
+        4
+      )}`
+    );
+
+    const lr = Tensor.fromData([0.005], [1]);
+    const epochs = 1000;
+
+    log("\nTraining...");
+
+    for (let i = 1; i <= epochs; i++) {
+      // Forward
+      const y_pred = x.matmul(w).add(b);
+
+      // Loss (MSE)
+      const diff = y_pred.sub(y_true);
+      const loss = diff.mul(diff).mean();
+
+      if (i % 50 === 0 || i === 1) {
+        log(`Epoch ${i}: Loss = ${(await loss.item()).toFixed(6)}`);
+      }
+
+      // Backward
+      loss.backward();
+
+      // Update
+      noGrad(() => {
+        if (w.grad) w.sub_(w.grad.mul(lr));
+        if (b.grad) b.sub_(b.grad.mul(lr));
+
+        // Zero grads
+        w.grad = null;
+        b.grad = null;
+      });
+    }
+
+    const finalW = await w.item();
+    const finalB = await b.item();
+
+    log(`\nFinal w: ${finalW.toFixed(4)} (Expected ~2.0)`);
+    log(`Final b: ${finalB.toFixed(4)} (Expected ~1.0)`);
+
+    const success = Math.abs(finalW - 2) < 0.1 && Math.abs(finalB - 1) < 0.3;
+    if (success) {
+      log("✅ Converged successfully!");
+    } else {
+      log("❌ Failed to converge.");
+    }
+
+    return [success, success ? "Converged" : "Failed to converge"];
+  });
+
+  await addTest("Multivariate Linear Regression (N=50, D=3)", async (log) => {
+    log("Target: y = 1.5x1 - 2.0x2 + 1.0x3 + 0.5");
+
+    const N = 50;
+    const D = 3;
+
+    // True parameters: W=[1.5, -2.0, 1.0], b=0.5
+    const W_true = [1.5, -2.0, 1.0];
+    const b_true = 0.5;
+
+    // Generate Data
+    const X_data = new Float32Array(N * D);
+    const Y_data = new Float32Array(N);
+
+    for (let i = 0; i < N; i++) {
+      let sum = 0;
+      for (let j = 0; j < D; j++) {
+        const val = Math.random() * 2; // Range [0, 2]
+        X_data[i * D + j] = val;
+        sum += val * W_true[j];
+      }
+      Y_data[i] = sum + b_true + (Math.random() - 0.5) * 0.1;
+    }
+
+    const x = Tensor.fromData(X_data, [N, D]);
+    const y_true = Tensor.fromData(Y_data, [N, 1]);
+
+    // Initialize Parameters
+    const w = Tensor.randn([D, 1], true);
+    const b = Tensor.zeros([1], true);
+
+    const lr = Tensor.fromData([0.01], [1]);
+    const epochs = 500;
+
+    log("Training...");
+
+    for (let i = 1; i <= epochs; i++) {
+      const y_pred = x.matmul(w).add(b);
+      const diff = y_pred.sub(y_true);
+      const loss = diff.mul(diff).mean();
+
+      if (i % 100 === 0) {
+        log(`Epoch ${i}: Loss = ${(await loss.item()).toFixed(6)}`);
+      }
+
+      loss.backward();
+
+      noGrad(() => {
+        if (w.grad) w.sub_(w.grad.mul(lr));
+        if (b.grad) b.sub_(b.grad.mul(lr));
+        w.grad = null;
+        b.grad = null;
+      });
+    }
+
+    const wFinal = await w.toArray();
+    const bFinal = await b.item();
+
+    log(`Final W: [${Array.from(wFinal).map((v) => v.toFixed(4)).join(", ")}]`);
+    log(`Expected W: [${W_true.join(", ")}]`);
+    log(`Final b: ${bFinal.toFixed(4)} (Expected ${b_true})`);
+
+    const wOk = wFinal.every((v, i) => Math.abs(v - W_true[i]) < 0.2);
+    const bOk = Math.abs(bFinal - b_true) < 0.2;
+
+    return [wOk && bOk, wOk && bOk ? "Converged" : "Failed to converge"];
   });
 
   await addInfo("Training Demo (Linear + Softmax)", async (log) => {

@@ -4,9 +4,3 @@ export function defineWorkerOnMessage<T>(handler: (data: T, ports: readonly Mess
         handler(event.data as T, event.ports);
     };
 }
-
-export function definePortOnMessage<T>(handler: (data: T) => void) {
-    return (event: MessageEvent) => {
-        handler(event.data as T);
-    };
-}

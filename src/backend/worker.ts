@@ -3,7 +3,7 @@ import * as elementwise from "../kernels/elementwise";
 import * as matmul from "../kernels/matmul";
 import * as transpose from "../kernels/transpose";
 import * as reductions from "../kernels/reductions";
-import { defineWorkerOnMessage, definePortOnMessage } from "../utils";
+import { defineWorkerOnMessage } from "../utils";
 import {
   CoordinatorRequest,
   ComputeRequest,
@@ -458,6 +458,9 @@ function executeKernel(
       break;
     case "ADD_SCALAR_TENSOR":
       reductions.add_scalar_tensor(inputViews[0], inputViews[1], outputView, start, end);
+      break;
+    case "COPY":
+      elementwise.copy(inputViews[0], outputView, start, end);
       break;
     default:
       console.error(`Unknown op: ${op}`);

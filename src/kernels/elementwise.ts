@@ -100,6 +100,12 @@ export function randn(out: Float32Array, start: number, end: number) {
     }
 }
 
+export function copy(input: Float32Array, out: Float32Array, start: number, end: number) {
+    for (let i = start; i < end; i++) {
+        out[i] = input[i];
+    }
+}
+
 export function relu_backward(input: Float32Array, gradOutput: Float32Array, gradInput: Float32Array, start: number, end: number) {
     for (let i = start; i < end; i++) {
         gradInput[i] = input[i] > 0 ? gradOutput[i] : 0;
