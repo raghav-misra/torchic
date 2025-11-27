@@ -89,7 +89,7 @@ Since we use a flat `SharedArrayBuffer`, we need a custom memory manager (a simp
       * `free(offset, size)`: Merges the block back into the free list.
   * **GC Integration:** The Main Thread uses `FinalizationRegistry` to track when a `Tensor` object is garbage collected. It then sends a `FREE` command to the worker to reclaim the memory.
 
-### 4.3 The Kernel Library
+### The Kernel Library
 
 The actual math logic.
 
@@ -100,9 +100,8 @@ The actual math logic.
       * **Synchronization:** It uses `Atomics` or a secondary message channel to trigger other workers.
       * **Zero-Copy:** Since all workers share the same `SharedArrayBuffer`, no data is copied. They just read/write to different offsets.
 
------
 
-## 5\. Codebase Structure
+## Codebase Structure
 
 ```text
 torchic/
@@ -128,11 +127,9 @@ torchic/
 │   └── sanity_check.js    # Gradient checking
 ```
 
------
+## Examples
 
-## 6\. Examples
-
-### Example 1: The "Lazy" Execution
+### The "Lazy" Execution
 
 ```javascript
 import { init, randn } from 'torchic';
@@ -153,7 +150,7 @@ let result = await c.toArray();
 console.log(result);
 ```
 
-### Example 2: Training Loop
+### Training Loop
 
 ```javascript
 // ... init code ...
@@ -179,8 +176,6 @@ for (let i = 0; i < 100; i++) {
     }
 }
 ```
-
------
 
 ## Component Details & Implementation Guide
 

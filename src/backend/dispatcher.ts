@@ -18,13 +18,14 @@ export class Dispatcher {
         return Dispatcher._instance;
     }
 
-    async init(workerScriptUrl: string = './worker.js', threadCount: number = 4, memorySizeMB: number = 256): Promise<void> {
+    async init(workerScriptUrl: string = './worker.ts', threadCount: number = 4, memorySizeMB: number = 256): Promise<void> {
         if (this.coordinator) return; // Already initialized
 
         // Create SharedArrayBuffer
         const sab = new SharedArrayBuffer(1024 * 1024 * memorySizeMB);
 
         // 1. Spawn Coordinator
+        // Vite handles this correctly if we point to the TS file
         const coordWorker = new Worker(new URL(workerScriptUrl, import.meta.url), { type: 'module' });
         this.coordinator = new TypedWorker(coordWorker);
         this.setupWorkerHandler(this.coordinator, 'Coordinator');

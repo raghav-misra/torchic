@@ -20,6 +20,7 @@ let tensorRegistry: Map<string, TensorMetadata> = new Map();
 // Coordinator State
 let computePorts: TypedPort<ComputeRequest, ComputeResponse>[] = [];
 let pendingTasks: Map<string, { resolve: () => void, count: number }> = new Map();
+let commandQueue = Promise.resolve(); // Serialization queue for Coordinator
 
 // Compute State
 let coordinatorPort: TypedPort<ComputeResponse, ComputeRequest> | null = null;
@@ -69,20 +70,33 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((dat
     // Coordinator Commands
     if (role === 'COORDINATOR') {
         const req = data as CoordinatorRequest;
-        switch (req.type) {
-            case 'ALLOC':
-                handleAlloc(req.payload);
-                break;
-            case 'FREE':
-                handleFree(req.payload);
-                break;
-            case 'OP':
-                handleOp({ ...req.payload, params: req.payload.params || {} }, req.id);
-                break;
-            case 'READ':
-                handleRead(req.payload, req.id);
-                break;
-        }
+        // We must serialize commands that touch memory or depend on previous ops
+        // ALLOC/FREE are sync and fast, but to be safe and simple, let's queue everything
+        // or at least queue OP and READ.
+        
+        commandQueue = commandQueue.then(async () => {
+            switch (req.type) {
+                case 'ALLOC':
+                    handleAlloc(req.payload);
+                    break;
+                case 'FREE':
+                    handleFree(req.payload);
+                    break;
+                case 'OP':
+                    await handleOp({ ...req.payload, params: req.payload.params || {} }, req.id);
+                    break;
+                case 'READ':
+                    handleRead(req.payload, req.id);
+                    break;
+            }
+        }).catch(err => {
+            console.error("Coordinator Error:", err);
+            // If we have an ID, we should probably reply with error, but for now just log
+            const reqId = (req as any).id;
+            if (reqId) {
+                self.postMessage({ id: reqId, error: err.message });
+            }
+        });
     }
 });
 
