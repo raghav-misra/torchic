@@ -5,6 +5,21 @@ const registry = new FinalizationRegistry((id: string) => {
     Dispatcher.instance.free(id);
 });
 
+// Global state for gradient computation
+export const GradMode = {
+    enabled: true
+};
+
+export function noGrad<T>(fn: () => T): T {
+    const prev = GradMode.enabled;
+    GradMode.enabled = false;
+    try {
+        return fn();
+    } finally {
+        GradMode.enabled = prev;
+    }
+}
+
 export class Tensor {
     id: string;
     shape: number[];
@@ -147,9 +162,12 @@ export class Tensor {
         Dispatcher.instance.allocate(outId, size);
         Dispatcher.instance.runOp('MATMUL', [this.id, other.id], outId, { m, n, k });
 
-        const out = new Tensor(outId, outShape, this.requiresGrad || other.requiresGrad);
-        out.op = 'MATMUL';
-        out.prev = [this, other];
+        const shouldGrad = GradMode.enabled && (this.requiresGrad || other.requiresGrad);
+        const out = new Tensor(outId, outShape, shouldGrad);
+        if (shouldGrad) {
+            out.op = 'MATMUL';
+            out.prev = [this, other];
+        }
         
         return out;
     }
@@ -167,9 +185,12 @@ export class Tensor {
         Dispatcher.instance.allocate(outId, size);
         Dispatcher.instance.runOp('TRANSPOSE', [this.id], outId, { m, n });
 
-        const out = new Tensor(outId, outShape, this.requiresGrad);
-        out.op = 'TRANSPOSE';
-        out.prev = [this];
+        const shouldGrad = GradMode.enabled && this.requiresGrad;
+        const out = new Tensor(outId, outShape, shouldGrad);
+        if (shouldGrad) {
+            out.op = 'TRANSPOSE';
+            out.prev = [this];
+        }
         
         return out;
     }
@@ -325,9 +346,12 @@ export class Tensor {
             Dispatcher.instance.allocate(outId, size);
             Dispatcher.instance.runOp('SUM', [this.id], outId);
 
-            const out = new Tensor(outId, [1], this.requiresGrad);
-            out.op = 'SUM';
-            out.prev = [this];
+            const shouldGrad = GradMode.enabled && this.requiresGrad;
+            const out = new Tensor(outId, [1], shouldGrad);
+            if (shouldGrad) {
+                out.op = 'SUM';
+                out.prev = [this];
+            }
             
             return out;
         }
@@ -354,9 +378,12 @@ export class Tensor {
             axis 
         });
 
-        const out = new Tensor(outId, finalShape, this.requiresGrad);
-        out.op = 'SUM_AXIS';
-        out.prev = [this];
+        const shouldGrad = GradMode.enabled && this.requiresGrad;
+        const out = new Tensor(outId, finalShape, shouldGrad);
+        if (shouldGrad) {
+            out.op = 'SUM_AXIS';
+            out.prev = [this];
+        }
         
         return out;
     }
@@ -435,9 +462,12 @@ export class Tensor {
             stridesB 
         });
 
-        const out = new Tensor(outId, outShape, this.requiresGrad || other.requiresGrad);
-        out.op = op;
-        out.prev = [this, other];
+        const shouldGrad = GradMode.enabled && (this.requiresGrad || other.requiresGrad);
+        const out = new Tensor(outId, outShape, shouldGrad);
+        if (shouldGrad) {
+            out.op = op;
+            out.prev = [this, other];
+        }
         
         return out;
     }
@@ -449,9 +479,12 @@ export class Tensor {
         Dispatcher.instance.allocate(outId, size);
         Dispatcher.instance.runOp(op, [this.id], outId);
 
-        const out = new Tensor(outId, this.shape, this.requiresGrad);
-        out.op = op;
-        out.prev = [this];
+        const shouldGrad = GradMode.enabled && this.requiresGrad;
+        const out = new Tensor(outId, this.shape, shouldGrad);
+        if (shouldGrad) {
+            out.op = op;
+            out.prev = [this];
+        }
 
         return out;
     }

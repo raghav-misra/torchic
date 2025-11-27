@@ -1,4 +1,4 @@
-import { Tensor } from "../src/index";
+import { Tensor, noGrad } from "../src/index";
 
 const container = document.getElementById("test-container");
 
@@ -316,6 +316,26 @@ async function runTests() {
     if (!bOk) return [false, `b.grad failed. Expected all 2s, got ${bGrad}`];
     
     return [true, "Broadcasting gradients correct"];
+  });
+
+  await addTest("noGrad Mode", async () => {
+    const x = Tensor.fromData([2], [1], true);
+    
+    let y: Tensor;
+    noGrad(() => {
+        y = x.mul(x);
+    });
+    
+    // y should not require grad
+    if (y!.requiresGrad) return [false, "y.requiresGrad should be false"];
+    if (y!.op !== null) return [false, "y.op should be null"];
+    
+    // Backward should do nothing (or at least not crash, but since requiresGrad is false it returns early)
+    y!.backward();
+    
+    if (x.grad) return [false, "x.grad should be null"];
+    
+    return [true, "noGrad works"];
   });
 
   await addTest("Broadcasting (Add)", async () => {
