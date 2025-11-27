@@ -20,6 +20,19 @@ export function noGrad<T>(fn: () => T): T {
   }
 }
 
+export interface OpParams {
+  axis?: number;
+  keepDim?: boolean;
+  m?: number;
+  n?: number;
+  k?: number;
+  value?: number;
+  shape?: number[];
+  strides?: number[];
+  stridesA?: number[];
+  stridesB?: number[];
+}
+
 export class Tensor {
   id: string;
   shape: number[];
@@ -30,6 +43,7 @@ export class Tensor {
   // Graph for Autograd
   op: string | null = null;
   prev: Tensor[] = [];
+  params: OpParams = {};
 
   constructor(id: string, shape: number[], requiresGrad: boolean = false) {
     this.id = id;
@@ -88,7 +102,7 @@ export class Tensor {
     shape: number[],
     requiresGrad: boolean,
     op: string,
-    params: any = {}
+    params: OpParams = {}
   ): Tensor {
     const size = shape.reduce((a, b) => a * b, 1) * 4; // 4 bytes per float
     const id = Dispatcher.instance.nextTensorId();
@@ -97,6 +111,19 @@ export class Tensor {
     Dispatcher.instance.runOp(op, [], id, params);
 
     return new Tensor(id, shape, requiresGrad);
+  }
+
+  static crossEntropy(input: Tensor, target: Tensor): Tensor {
+    // input: [Batch, Classes] (logits)
+    // target: [Batch, Classes] (one-hot probabilities)
+    
+    const probs = input.softmax(-1);
+    // Add epsilon to avoid log(0)
+    const epsilon = Tensor.fromData([1e-7], [1]);
+    const logProbs = probs.add(epsilon).log();
+    
+    // -sum(target * log(probs)) / N
+    return target.mul(logProbs).neg().sum(-1).mean();
   }
 
   // --- Operations ---
@@ -328,6 +355,22 @@ export class Tensor {
           // We handle this in addGrad via broadcasting
           a.addGrad(v.grad);
         }
+      } else if (v.op === "SUM_AXIS") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          let grad = v.grad;
+          // If keepDim was false, we need to restore the dimension
+          if (v.shape.length < a.shape.length) {
+            const axis = v.params.axis!;
+            const newShape = [...v.shape];
+            newShape.splice(axis, 0, 1);
+            grad = grad.reshape(newShape);
+          }
+          // Broadcast to a.shape by adding to zeros
+          const zeros = Tensor.zeros(a.shape);
+          const expanded = zeros.add(grad);
+          a.addGrad(expanded);
+        }
       }
     }
   }
@@ -441,6 +484,7 @@ export class Tensor {
     if (shouldGrad) {
       out.op = "SUM_AXIS";
       out.prev = [this];
+      out.params = { axis, keepDim };
     }
 
     return out;
@@ -452,9 +496,9 @@ export class Tensor {
     return s.div(Tensor.create([1], false, "FILL", { value: n }));
   }
 
-  softmax(): Tensor {
+  softmax(axis: number = -1): Tensor {
     const exp = this.exp();
-    const sumExp = exp.sum();
+    const sumExp = exp.sum(axis, true);
     return exp.div(sumExp);
   }
 

@@ -410,6 +410,41 @@ async function runTests() {
     return [success, success ? "Converged" : "Failed to converge"];
   });
 
+  await addTest("CrossEntropy Loss", async () => {
+    // Logits: [1.0, 2.0, 3.0]
+    // Target: [0, 0, 1]
+    const logits = Tensor.fromData([1.0, 2.0, 3.0], [1, 3], true);
+    const target = Tensor.fromData([0, 0, 1], [1, 3]);
+
+    const loss = Tensor.crossEntropy(logits, target);
+    const lossVal = await loss.item();
+
+    // Expected:
+    // exp: [2.718, 7.389, 20.085]
+    // sum: 30.192
+    // p2: 20.085 / 30.192 = 0.6652
+    // -log(0.6652) = 0.4076
+    const expected = 0.4076;
+
+    const match = Math.abs(lossVal - expected) < 1e-3;
+
+    // Backward
+    loss.backward();
+    if (!logits.grad) return [false, "Grad missing"];
+    
+    // dLoss/dLogits = probs - target
+    // p0 - 0 = 0.0900
+    // p1 - 0 = 0.2447
+    // p2 - 1 = 0.6652 - 1 = -0.3348
+    
+    const grad = await logits.grad.toArray();
+    const gExpected = [0.0900, 0.2447, -0.3348];
+    
+    const gradMatch = grad.every((v, i) => Math.abs(v - gExpected[i]) < 1e-3);
+
+    return [match && gradMatch, `Loss: ${lossVal.toFixed(4)}, Grad: [${grad}]`];
+  });
+
   await addTest("Multivariate Linear Regression (N=50, D=3)", async (log) => {
     log("Target: y = 1.5x1 - 2.0x2 + 1.0x3 + 0.5");
 
