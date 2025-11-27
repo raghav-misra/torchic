@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",
-    "lib": ["ES2020", "DOM", "DOM.Iterable", "WebWorker"],
+    "lib": ["ES2021", "DOM", "DOM.Iterable", "WebWorker"],
     "declaration": true,
     "outDir": "./dist",
     "strict": true,
