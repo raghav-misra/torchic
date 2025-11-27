@@ -264,39 +264,98 @@ export class Tensor {
     }
 
     private addGrad(g: Tensor) {
-        if (!this.grad) {
-            this.grad = g;
-        } else {
-            // If shapes match, simple add
-            if (this.shapeEquals(g.shape)) {
-                this.grad = this.grad.add(g);
-            } else if (g.numElements() === 1) {
-                // Broadcast add (scalar tensor to this tensor)
-                // We need a special op for this: ADD_SCALAR_TENSOR
+        const processedG = this.reshapeGrad(g);
+        
+        if (this.shapeEquals(processedG.shape)) {
+            if (!this.grad) {
+                this.grad = processedG;
+            } else {
+                this.grad = this.grad.add(processedG);
+            }
+        } else if (processedG.numElements() === 1) {
+            // Scalar broadcast case (e.g. from sum())
+            if (!this.grad) {
+                 const zeros = Tensor.zeros(this.shape);
+                 const outId = Dispatcher.instance.nextTensorId();
+                 const size = this.numElements() * 4;
+                 Dispatcher.instance.allocate(outId, size);
+                 Dispatcher.instance.runOp('ADD_SCALAR_TENSOR', [zeros.id, processedG.id], outId);
+                 this.grad = new Tensor(outId, this.shape, false);
+            } else {
                 const outId = Dispatcher.instance.nextTensorId();
                 const size = this.numElements() * 4;
                 Dispatcher.instance.allocate(outId, size);
-                Dispatcher.instance.runOp('ADD_SCALAR_TENSOR', [this.grad.id, g.id], outId);
+                Dispatcher.instance.runOp('ADD_SCALAR_TENSOR', [this.grad.id, processedG.id], outId);
                 this.grad = new Tensor(outId, this.shape, false);
-            } else {
-                throw new Error(`Gradient shape mismatch: ${this.shape} vs ${g.shape}`);
+            }
+        } else {
+             throw new Error(`Gradient shape mismatch: ${this.shape} vs ${processedG.shape}`);
+        }
+    }
+
+    private reshapeGrad(g: Tensor): Tensor {
+        if (this.shapeEquals(g.shape)) return g;
+
+        let out = g;
+        
+        // 1. Handle extra dimensions (e.g. [2, 3] -> [3])
+        while (out.shape.length > this.shape.length) {
+            out = out.sum(0, false);
+        }
+        
+        // 2. Handle broadcasted dimensions (e.g. [1, 3] vs [2, 3])
+        for (let i = 0; i < this.shape.length; i++) {
+            if (this.shape[i] === 1 && out.shape[i] !== 1) {
+                out = out.sum(i, true);
             }
         }
+        
+        return out;
     }
 
     neg(): Tensor {
         return this.mul(Tensor.create(this.shape, false, 'FILL', { value: -1 }));
     }
 
-    sum(): Tensor {
+    sum(axis?: number, keepDim: boolean = false): Tensor {
+        if (axis === undefined) {
+            const outId = Dispatcher.instance.nextTensorId();
+            const size = 4; // Scalar
+            
+            Dispatcher.instance.allocate(outId, size);
+            Dispatcher.instance.runOp('SUM', [this.id], outId);
+
+            const out = new Tensor(outId, [1], this.requiresGrad);
+            out.op = 'SUM';
+            out.prev = [this];
+            
+            return out;
+        }
+
+        if (axis < 0) axis += this.shape.length;
+        if (axis < 0 || axis >= this.shape.length) {
+            throw new Error(`Invalid axis ${axis} for shape ${this.shape}`);
+        }
+
+        const outShape = this.shape.filter((_, i) => i !== axis);
+        // If keepDim is true, we want [d0, 1, d2] but the underlying data is flat [d0*d2]
+        // The Tensor shape property handles the view.
+        const finalShape = keepDim ? 
+            this.shape.map((s, i) => i === axis ? 1 : s) : 
+            outShape;
+
         const outId = Dispatcher.instance.nextTensorId();
-        const size = 4; // Scalar
+        const size = outShape.reduce((a, b) => a * b, 1) * 4;
         
         Dispatcher.instance.allocate(outId, size);
-        Dispatcher.instance.runOp('SUM', [this.id], outId);
+        Dispatcher.instance.runOp('SUM_AXIS', [this.id], outId, { 
+            shape: this.shape, 
+            strides: this.strides, 
+            axis 
+        });
 
-        const out = new Tensor(outId, [1], this.requiresGrad);
-        out.op = 'SUM';
+        const out = new Tensor(outId, finalShape, this.requiresGrad);
+        out.op = 'SUM_AXIS';
         out.prev = [this];
         
         return out;

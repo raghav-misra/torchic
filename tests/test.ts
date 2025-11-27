@@ -287,6 +287,37 @@ async function runTests() {
     ];
   });
 
+  await addTest("Broadcasting Gradient (Add)", async () => {
+    // x: [2, 3]
+    // b: [3]
+    // y = x + b
+    // loss = y.sum()
+    
+    const x = Tensor.fromData([1, 1, 1, 1, 1, 1], [2, 3], true);
+    const b = Tensor.fromData([2, 2, 2], [3], true);
+    
+    const y = x.add(b);
+    const loss = y.sum();
+    
+    loss.backward();
+    
+    if (!x.grad || !b.grad) return [false, "Gradients missing"];
+    
+    const xGrad = await x.grad.toArray();
+    const bGrad = await b.grad.toArray();
+    
+    // x.grad should be all 1s (shape [2, 3])
+    const xOk = xGrad.every(v => Math.abs(v - 1.0) < 1e-4);
+    
+    // b.grad should be all 2s (shape [3]) because it was broadcasted across dim 0 (size 2)
+    const bOk = bGrad.every(v => Math.abs(v - 2.0) < 1e-4);
+    
+    if (!xOk) return [false, `x.grad failed. Expected all 1s, got ${xGrad}`];
+    if (!bOk) return [false, `b.grad failed. Expected all 2s, got ${bGrad}`];
+    
+    return [true, "Broadcasting gradients correct"];
+  });
+
   await addTest("Broadcasting (Add)", async () => {
     // A: [2, 3]
     // B: [3] -> Broadcast to [2, 3]

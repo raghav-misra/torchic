@@ -453,6 +453,9 @@ function executeKernel(
     case "RANDN":
       elementwise.randn(outputView, start, end);
       break;
+    case "SUM_AXIS":
+      reductions.sum_axis(inputViews[0], outputView, start, end, params.shape, params.strides, params.axis);
+      break;
     case "ADD_SCALAR_TENSOR":
       reductions.add_scalar_tensor(inputViews[0], inputViews[1], outputView, start, end);
       break;
