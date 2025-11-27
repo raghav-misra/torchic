@@ -51,6 +51,49 @@ async function addTest(name: string, fn: () => Promise<[boolean, string]>) {
   }
 }
 
+async function addInfo(
+  name: string,
+  fn: (log: (msg: string) => void) => Promise<void>
+) {
+  if (!container) return;
+
+  const details = document.createElement("details");
+  details.open = true;
+  details.style.marginBottom = "10px";
+  details.style.border = "1px solid #90cdf4"; // Light blue border
+  details.style.borderRadius = "4px";
+  details.style.padding = "10px";
+  details.style.backgroundColor = "#ebf8ff"; // Light blue background
+
+  const summary = document.createElement("summary");
+  summary.style.cursor = "pointer";
+  summary.style.fontWeight = "bold";
+  summary.textContent = `ℹ️ ${name}`;
+  summary.style.color = "#2b6cb0"; // Darker blue text
+
+  const content = document.createElement("div");
+  content.style.marginTop = "10px";
+  content.style.fontFamily = "monospace";
+  content.style.whiteSpace = "pre-wrap";
+  content.textContent = "";
+
+  details.appendChild(summary);
+  details.appendChild(content);
+  container.appendChild(details);
+
+  const log = (msg: string) => {
+    content.textContent += msg + "\n";
+  };
+
+  try {
+    await fn(log);
+  } catch (e: any) {
+    log(`❌ Error: ${e.message}\n${e.stack}`);
+    details.style.borderColor = "red";
+    details.style.backgroundColor = "#fff5f5";
+  }
+}
+
 async function runTests() {
   await addTest("Initialization", async () => {
     await Tensor.init(4);
@@ -260,6 +303,113 @@ async function runTests() {
 
     const match = res.every((val, i) => Math.abs(val - expected[i]) < 1e-5);
     return [match, match ? "Passed" : `Expected ${expected}, got ${res}`];
+  });
+
+  await addTest("Softmax Layer", async () => {
+    // Input: [1, 4]
+    const xData = [0.1, 0.2, 0.3, 0.4];
+    const x = Tensor.fromData(xData, [1, 4]);
+
+    // Weights: [4, 3]
+    // Let's use fixed values to verify math
+    const wData = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.1, 0.2, 0.3];
+    const W = Tensor.fromData(wData, [4, 3]);
+
+    // Bias: [1, 3]
+    const bData = [0.1, 0.2, 0.3];
+    const b = Tensor.fromData(bData, [1, 3]);
+
+    // Linear Layer
+    const z = x.matmul(W).add(b);
+
+    // Manual Verification of Linear Layer
+    // z[0] = (0.1*0.1 + 0.2*0.4 + 0.3*0.7 + 0.4*0.1) + 0.1 = (0.01 + 0.08 + 0.21 + 0.04) + 0.1 = 0.34 + 0.1 = 0.44
+    // z[1] = (0.1*0.2 + 0.2*0.5 + 0.3*0.8 + 0.4*0.2) + 0.2 = (0.02 + 0.10 + 0.24 + 0.08) + 0.2 = 0.44 + 0.2 = 0.64
+    // z[2] = (0.1*0.3 + 0.2*0.6 + 0.3*0.9 + 0.4*0.3) + 0.3 = (0.03 + 0.12 + 0.27 + 0.12) + 0.3 = 0.54 + 0.3 = 0.84
+
+    const zData = await z.toArray();
+    const expectedZ = [0.44, 0.64, 0.84];
+    const zMatch = zData.every((v, i) => Math.abs(v - expectedZ[i]) < 1e-5);
+
+    if (!zMatch)
+      return [
+        false,
+        `Linear layer failed. Expected ${expectedZ}, got ${zData}`,
+      ];
+
+    // Softmax
+    const probs = z.softmax();
+
+    const probsData = await probs.toArray();
+    const sumProbs = probsData.reduce((a, b) => a + b, 0);
+
+    // Check if sum is close to 1
+    const isSumOne = Math.abs(sumProbs - 1.0) < 1e-4;
+
+    // Check if all probs are positive
+    const arePositive = probsData.every((p) => p >= 0);
+
+    return [isSumOne && arePositive, `Sum: ${sumProbs}, Probs: [${probsData}]`];
+  });
+
+  await addInfo("Training Demo (Linear + Softmax)", async (log) => {
+    log("Setting up Neural Net...");
+    log("Input: [1, 4], Output: [1, 3]");
+
+    // Input (Batch size 1)
+    const x = Tensor.fromData([0.5, -0.2, 0.1, 0.8], [1, 4]);
+
+    // Target (Class 1 is correct: [0, 1, 0])
+    const target = Tensor.fromData([0, 1, 0], [1, 3]);
+
+    // Weights & Bias
+    let W = Tensor.randn([4, 3], true);
+    let b = Tensor.randn([1, 3], true);
+
+    const lr = Tensor.fromData([0.5], [1]); // Learning Rate
+
+    log("\nStarting Training Loop (100 Steps)...");
+
+    for (let i = 1; i <= 100; i++) {
+      // Forward
+      const z = x.matmul(W).add(b);
+      const probs = z.softmax();
+
+      // Loss (MSE)
+      const diff = probs.sub(target);
+      const loss = diff.mul(diff).mean();
+
+      const lossVal = await loss.item();
+      const probsVal = await probs.toArray();
+
+      log(
+        `Step ${i}: Loss = ${lossVal.toFixed(6)} | Probs = [${Array.from(
+          probsVal
+        )
+          .map((p) => p.toFixed(3))
+          .join(", ")}]`
+      );
+
+      // Backward
+      loss.backward();
+
+      if (!W.grad || !b.grad) {
+        log("❌ Gradients missing!");
+        break;
+      }
+
+      // Update (SGD)
+      // W = W - lr * grad
+      // In-place update
+      W.sub_(W.grad.mul(lr));
+      b.sub_(b.grad.mul(lr));
+
+      // Zero gradients for next step
+      W.grad = null;
+      b.grad = null;
+    }
+
+    log("\nTraining Complete!");
   });
 }
 

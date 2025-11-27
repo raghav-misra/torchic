@@ -308,6 +308,57 @@ export class Tensor {
         return s.div(Tensor.create([1], false, 'FILL', { value: n }));
     }
 
+    softmax(): Tensor {
+        const exp = this.exp();
+        const sumExp = exp.sum();
+        return exp.div(sumExp);
+    }
+
+    // --- In-Place Operations ---
+
+    add_(other: Tensor): Tensor {
+        this.runBinaryOpInPlace('ADD', other);
+        return this;
+    }
+
+    sub_(other: Tensor): Tensor {
+        this.runBinaryOpInPlace('SUB', other);
+        return this;
+    }
+
+    mul_(other: Tensor): Tensor {
+        this.runBinaryOpInPlace('MUL', other);
+        return this;
+    }
+
+    div_(other: Tensor): Tensor {
+        this.runBinaryOpInPlace('DIV', other);
+        return this;
+    }
+
+    zero_(): Tensor {
+        Dispatcher.instance.runOp('FILL', [], this.id, { value: 0 });
+        return this;
+    }
+
+    private runBinaryOpInPlace(op: string, other: Tensor) {
+        const outShape = Tensor.broadcastShapes(this.shape, other.shape);
+        
+        // Ensure output shape matches this tensor's shape (no resizing allowed)
+        if (!this.shapeEquals(outShape)) {
+            throw new Error(`In-place op requires output shape to match. Got ${this.shape} vs broadcasted ${outShape}`);
+        }
+
+        const stridesA = Tensor.getBroadcastStrides(this.shape, this.strides, outShape);
+        const stridesB = Tensor.getBroadcastStrides(other.shape, other.strides, outShape);
+
+        Dispatcher.instance.runOp(op, [this.id, other.id], this.id, { 
+            shape: outShape, 
+            stridesA, 
+            stridesB 
+        });
+    }
+
     // --- Internal Helpers ---
 
     private runBinaryOp(op: string, other: Tensor): Tensor {
