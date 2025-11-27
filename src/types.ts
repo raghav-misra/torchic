@@ -7,6 +7,7 @@ export type CoordinatorRequest =
     | { type: 'INIT_COORDINATOR', id: string, payload: { buffer: SharedArrayBuffer, totalWorkers: number } }
     | { type: 'ADD_WORKER', payload: { workerId: number } } // Transfer port in second arg
     | { type: 'ALLOC', payload: { id: TensorId, size: number } }
+    | { type: 'ALLOC_VIEW', payload: { id: TensorId, parentId: TensorId } } // Create view that shares parent's memory
     | { type: 'FREE', payload: { id: TensorId } }
     | { type: 'SET', payload: { id: TensorId, offset: number, value: number } }
     | { type: 'WRITE', payload: { id: TensorId, data: Float32Array } }

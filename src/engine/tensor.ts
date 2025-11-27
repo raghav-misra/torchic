@@ -10,14 +10,12 @@ export const GradMode = {
   enabled: true,
 };
 
-export function noGrad<T>(fn: () => T): T {
+export async function noGrad<T>(fn: () => Promise<T>): Promise<T> {
   const prev = GradMode.enabled;
   GradMode.enabled = false;
-  try {
-    return fn();
-  } finally {
+  return fn().finally(() => {
     GradMode.enabled = prev;
-  }
+  });
 }
 
 export interface OpParams {
@@ -37,6 +35,7 @@ export class Tensor {
   id: string;
   shape: number[];
   strides: number[];
+  offset: number; // Byte offset in SharedArrayBuffer
   requiresGrad: boolean;
   grad: Tensor | null = null;
 
@@ -45,10 +44,16 @@ export class Tensor {
   prev: Tensor[] = [];
   params: OpParams = {};
 
-  constructor(id: string, shape: number[], requiresGrad: boolean = false) {
+  constructor(
+    id: string,
+    shape: number[],
+    requiresGrad: boolean = false,
+    offset: number = 0
+  ) {
     this.id = id;
     this.shape = shape;
     this.strides = Tensor.computeStrides(shape);
+    this.offset = offset;
     this.requiresGrad = requiresGrad;
 
     // Register for automatic cleanup when this JS object is GC'd
@@ -63,6 +68,39 @@ export class Tensor {
       stride *= shape[i];
     }
     return strides;
+  }
+
+  private isContiguous(): boolean {
+    // Check if strides match C-contiguous layout
+    let expectedStride = 1;
+    for (let i = this.shape.length - 1; i >= 0; i--) {
+      if (this.strides[i] !== expectedStride) return false;
+      expectedStride *= this.shape[i];
+    }
+    return true;
+  }
+
+  private materialize(): Tensor {
+    // If already contiguous, return self
+    if (this.isContiguous()) return this;
+
+    // Create a new contiguous copy
+    const outId = Dispatcher.instance.nextTensorId();
+    const size = this.numElements() * 4;
+
+    Dispatcher.instance.allocate(outId, size);
+    Dispatcher.instance.runOp("MATERIALIZE", [this.id], outId, {
+      shape: this.shape,
+      strides: this.strides,
+    });
+
+    // Preserve gradient tracking from parent
+    const out = new Tensor(outId, this.shape, this.requiresGrad);
+    if (this.requiresGrad && GradMode.enabled) {
+      out.op = "MATERIALIZE";
+      out.prev = [this];
+    }
+    return out;
   }
 
   // --- Initialization ---
@@ -116,12 +154,12 @@ export class Tensor {
   static crossEntropy(input: Tensor, target: Tensor): Tensor {
     // input: [Batch, Classes] (logits)
     // target: [Batch, Classes] (one-hot probabilities)
-    
+
     const probs = input.softmax(-1);
     // Add epsilon to avoid log(0)
     const epsilon = Tensor.fromData([1e-7], [1]);
     const logProbs = probs.add(epsilon).log();
-    
+
     // -sum(target * log(probs)) / N
     return target.mul(logProbs).neg().sum(-1).mean();
   }
@@ -192,16 +230,20 @@ export class Tensor {
       );
     }
 
-    const m = this.shape[0];
-    const k = this.shape[1];
-    const n = other.shape[1];
+    // Materialize if needed (e.g., if this was transposed)
+    const a = this.materialize();
+    const b = other.materialize();
+
+    const m = a.shape[0];
+    const k = a.shape[1];
+    const n = b.shape[1];
     const outShape = [m, n];
 
     const outId = Dispatcher.instance.nextTensorId();
     const size = m * n * 4;
 
     Dispatcher.instance.allocate(outId, size);
-    Dispatcher.instance.runOp("MATMUL", [this.id, other.id], outId, {
+    Dispatcher.instance.runOp("MATMUL", [a.id, b.id], outId, {
       m,
       n,
       k,
@@ -212,7 +254,7 @@ export class Tensor {
     const out = new Tensor(outId, outShape, shouldGrad);
     if (shouldGrad) {
       out.op = "MATMUL";
-      out.prev = [this, other];
+      out.prev = [this, other]; // Keep original tensors in graph
     }
 
     return out;
@@ -225,14 +267,15 @@ export class Tensor {
     const [m, n] = this.shape;
     const outShape = [n, m];
 
-    const outId = Dispatcher.instance.nextTensorId();
-    const size = m * n * 4;
-
-    Dispatcher.instance.allocate(outId, size);
-    Dispatcher.instance.runOp("TRANSPOSE", [this.id], outId, { m, n });
+    // Zero-copy: create a view with new ID but swap strides
+    const viewId = Dispatcher.instance.nextTensorId();
+    Dispatcher.instance.allocateView(viewId, this.id);
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
-    const out = new Tensor(outId, outShape, shouldGrad);
+    const out = new Tensor(viewId, outShape, shouldGrad, this.offset);
+    // Swap strides: if original was [stride0, stride1], transposed is [stride1, stride0]
+    out.strides = [this.strides[1], this.strides[0]];
+
     if (shouldGrad) {
       out.op = "TRANSPOSE";
       out.prev = [this];
@@ -251,14 +294,12 @@ export class Tensor {
       );
     }
 
-    const outId = Dispatcher.instance.nextTensorId();
-    const size = newSize * 4;
-
-    Dispatcher.instance.allocate(outId, size);
-    Dispatcher.instance.runOp("COPY", [this.id], outId);
+    // Zero-copy: create a view with new ID but same memory offset
+    const viewId = Dispatcher.instance.nextTensorId();
+    Dispatcher.instance.allocateView(viewId, this.id);
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
-    const out = new Tensor(outId, newShape, shouldGrad);
+    const out = new Tensor(viewId, newShape, shouldGrad, this.offset);
     if (shouldGrad) {
       out.op = "RESHAPE";
       out.prev = [this];
@@ -270,7 +311,9 @@ export class Tensor {
   // --- Data Access ---
 
   async toArray(): Promise<Float32Array> {
-    return await Dispatcher.instance.read(this.id);
+    // If non-contiguous (e.g., transposed view), materialize first
+    const tensor = this.materialize();
+    return await Dispatcher.instance.read(tensor.id);
   }
 
   async item(): Promise<number> {
@@ -347,6 +390,9 @@ export class Tensor {
       } else if (v.op === "RESHAPE") {
         const [a] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.reshape(a.shape));
+      } else if (v.op === "MATERIALIZE") {
+        const [a] = v.prev;
+        if (a.requiresGrad) a.addGrad(v.grad);
       } else if (v.op === "SUM") {
         const [a] = v.prev;
         if (a.requiresGrad) {
@@ -441,17 +487,20 @@ export class Tensor {
 
   sum(axis?: number, keepDim: boolean = false): Tensor {
     if (axis === undefined) {
+      // Materialize if non-contiguous
+      const input = this.materialize();
+
       const outId = Dispatcher.instance.nextTensorId();
       const size = 4; // Scalar
 
       Dispatcher.instance.allocate(outId, size);
-      Dispatcher.instance.runOp("SUM", [this.id], outId);
+      Dispatcher.instance.runOp("SUM", [input.id], outId);
 
       const shouldGrad = GradMode.enabled && this.requiresGrad;
       const out = new Tensor(outId, [1], shouldGrad);
       if (shouldGrad) {
         out.op = "SUM";
-        out.prev = [this];
+        out.prev = [this]; // Keep original in graph
       }
 
       return out;
@@ -462,20 +511,23 @@ export class Tensor {
       throw new Error(`Invalid axis ${axis} for shape ${this.shape}`);
     }
 
-    const outShape = this.shape.filter((_, i) => i !== axis);
+    // Materialize if non-contiguous
+    const input = this.materialize();
+
+    const outShape = input.shape.filter((_, i) => i !== axis);
     // If keepDim is true, we want [d0, 1, d2] but the underlying data is flat [d0*d2]
     // The Tensor shape property handles the view.
     const finalShape = keepDim
-      ? this.shape.map((s, i) => (i === axis ? 1 : s))
+      ? input.shape.map((s, i) => (i === axis ? 1 : s))
       : outShape;
 
     const outId = Dispatcher.instance.nextTensorId();
     const size = outShape.reduce((a, b) => a * b, 1) * 4;
 
     Dispatcher.instance.allocate(outId, size);
-    Dispatcher.instance.runOp("SUM_AXIS", [this.id], outId, {
-      shape: this.shape,
-      strides: this.strides,
+    Dispatcher.instance.runOp("SUM_AXIS", [input.id], outId, {
+      shape: input.shape,
+      strides: input.strides,
       axis,
     });
 
@@ -483,7 +535,7 @@ export class Tensor {
     const out = new Tensor(outId, finalShape, shouldGrad);
     if (shouldGrad) {
       out.op = "SUM_AXIS";
-      out.prev = [this];
+      out.prev = [this]; // Keep original in graph
       out.params = { axis, keepDim };
     }
 
@@ -594,17 +646,20 @@ export class Tensor {
   }
 
   private runUnaryOp(op: string): Tensor {
+    // Materialize if non-contiguous
+    const input = this.materialize();
+
     const outId = Dispatcher.instance.nextTensorId();
-    const size = this.numElements() * 4;
+    const size = input.numElements() * 4;
 
     Dispatcher.instance.allocate(outId, size);
-    Dispatcher.instance.runOp(op, [this.id], outId);
+    Dispatcher.instance.runOp(op, [input.id], outId);
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
-    const out = new Tensor(outId, this.shape, shouldGrad);
+    const out = new Tensor(outId, input.shape, shouldGrad);
     if (shouldGrad) {
       out.op = op;
-      out.prev = [this];
+      out.prev = [this]; // Keep original in graph
     }
 
     return out;

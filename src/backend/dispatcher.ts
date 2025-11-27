@@ -114,6 +114,13 @@ export class Dispatcher {
         });
     }
 
+    allocateView(tensorId: string, parentId: string): void {
+        this.postToCoordinator({
+            type: 'ALLOC_VIEW',
+            payload: { id: tensorId, parentId }
+        });
+    }
+
     free(tensorId: string): void {
         this.postToCoordinator({
             type: 'FREE',

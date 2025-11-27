@@ -106,6 +106,21 @@ export function copy(input: Float32Array, out: Float32Array, start: number, end:
     }
 }
 
+export function materialize(input: Float32Array, out: Float32Array, start: number, end: number, shape: number[], strides: number[]) {
+    // Convert non-contiguous tensor to contiguous
+    for (let i = start; i < end; i++) {
+        // Map flat output index to strided input offset
+        let inputOffset = 0;
+        let idx = i;
+        for (let dim = shape.length - 1; dim >= 0; dim--) {
+            const pos = idx % shape[dim];
+            idx = Math.floor(idx / shape[dim]);
+            inputOffset += pos * strides[dim];
+        }
+        out[i] = input[inputOffset];
+    }
+}
+
 export function relu_backward(input: Float32Array, gradOutput: Float32Array, gradInput: Float32Array, start: number, end: number) {
     for (let i = start; i < end; i++) {
         gradInput[i] = input[i] > 0 ? gradOutput[i] : 0;

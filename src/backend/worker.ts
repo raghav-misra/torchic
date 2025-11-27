@@ -17,6 +17,7 @@ type WorkerRole = "COORDINATOR" | "COMPUTE";
 interface TensorMetadata {
   offset: number;
   size: number;
+  isView: boolean; // True if this tensor is a view sharing memory with another tensor
 }
 
 // Global State
@@ -90,6 +91,9 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>(
             case "ALLOC":
               handleAlloc(req.payload);
               break;
+            case "ALLOC_VIEW":
+              handleAllocView(req.payload);
+              break;
             case "FREE":
               handleFree(req.payload);
               break;
@@ -148,9 +152,19 @@ function handleAlloc(payload: { id: string; size: number }) {
   if (!memoryAllocator) return;
   try {
     const offset = memoryAllocator.allocate(payload.size);
-    tensorRegistry.set(payload.id, { offset, size: payload.size });
+    tensorRegistry.set(payload.id, { offset, size: payload.size, isView: false });
   } catch (e: any) {
     console.error("Allocation failed:", e.message);
+  }
+}
+
+function handleAllocView(payload: { id: string; parentId: string }) {
+  // View tensors share the same memory as their parent
+  const parentMeta = tensorRegistry.get(payload.parentId);
+  if (parentMeta) {
+    tensorRegistry.set(payload.id, { offset: parentMeta.offset, size: parentMeta.size, isView: true });
+  } else {
+    console.error(`Cannot create view: parent tensor ${payload.parentId} not found`);
   }
 }
 
@@ -158,7 +172,10 @@ function handleFree(payload: { id: string }) {
   if (!memoryAllocator) return;
   const meta = tensorRegistry.get(payload.id);
   if (meta) {
-    memoryAllocator.free(meta.offset, meta.size);
+    // Only free memory if this is not a view (views share memory with their parent)
+    if (!meta.isView) {
+      memoryAllocator.free(meta.offset, meta.size);
+    }
     tensorRegistry.delete(payload.id);
   }
 }
@@ -286,6 +303,8 @@ function handleRead(payload: { id: string }, reqId: string) {
   const meta = tensorRegistry.get(payload.id);
   if (!meta || !buffer) return;
 
+  // Simply read the contiguous data
+  // (materialize() is called on frontend before read if needed)
   const src = new Float32Array(buffer, meta.offset, meta.size / 4);
   const copy = new Float32Array(src);
 
@@ -461,6 +480,9 @@ function executeKernel(
       break;
     case "COPY":
       elementwise.copy(inputViews[0], outputView, start, end);
+      break;
+    case "MATERIALIZE":
+      elementwise.materialize(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
     default:
       console.error(`Unknown op: ${op}`);
