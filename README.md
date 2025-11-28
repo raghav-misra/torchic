@@ -114,6 +114,10 @@ Tensor.zeros([10, 10], requiresGrad = false)
 - `.matmul(other)` - Matrix multiplication
 - `.neg()` - Negation
 
+**Slicing and Indexing**:
+- `.slice(ranges)` - N-dimensional slicing, returns a tensor view. Example: `tensor.slice([[0,2],[1,4]])`
+- `.set(indices, value)` - Set value at n-dimensional indices. Example: `tensor.set([i, j], value)`
+
 **Activations**:
 - `.relu()` - ReLU activation
 - `.exp()` - Exponential
@@ -133,10 +137,10 @@ Tensor.zeros([10, 10], requiresGrad = false)
 - `noGrad(async () => {...})` - Disable gradient computation
 
 **Data Access** (async):
-- `await tensor.item()` - Read scalar value
-- `await tensor.toArray()` - Read as Float32Array
-- `await tensor.getValue([i, j])` - Read element at index
-- `tensor.setValue([i, j], value)` - Write element at index
+ - `await tensor.item()` - Read scalar value (first/only element)
+ - `await tensor.toArray()` - Read as Float32Array
+ - `tensor.slice(ranges)` - Get a view of a region (see above)
+ - `tensor.set(indices, value)` - Set value at indices (see above)
 
 ### In-Place Operations
 

@@ -84,11 +84,12 @@ export class Tensor {
     id: string,
     shape: number[],
     requiresGrad: boolean = false,
-    offset: number = 0
+    offset: number = 0,
+    strides?: number[]
   ) {
     this.id = id;
     this.shape = shape;
-    this.strides = Tensor.computeStrides(shape);
+    this.strides = strides ? strides.slice() : Tensor.computeStrides(shape);
     this.offset = offset;
     this.requiresGrad = requiresGrad;
 
@@ -98,6 +99,51 @@ export class Tensor {
     if (_activeTracking) {
       _activeTracking.add(this);
     }
+  }
+  /**
+   * Returns a zero-copy n-dimensional slice view of this tensor.
+   * @param ranges Array of [start, end) for each dimension
+   */
+  slice(ranges: Array<[number, number]>): Tensor {
+    if (ranges.length !== this.shape.length) {
+      throw new Error(`slice: ranges length ${ranges.length} does not match tensor rank ${this.shape.length}`);
+    }
+    const newShape = ranges.map(([start, end], i) => {
+      if (start < 0 || end > this.shape[i] || start >= end) {
+        throw new Error(`Invalid slice range [${start}, ${end}) for dimension ${i} with size ${this.shape[i]}`);
+      }
+      return end - start;
+    });
+    const newOffset = this.offset + ranges.reduce((acc, [start], i) => acc + start * this.strides[i], 0);
+    // Strides remain the same
+    return new Tensor(
+      Dispatcher.instance.nextTensorId(),
+      newShape,
+      this.requiresGrad,
+      newOffset,
+      this.strides
+    );
+  }
+
+  /**
+   * Sets the value at the given n-dimensional indices.
+   * @param indices Array of indices for each dimension
+   * @param value Value to set
+   */
+  set(indices: number[], value: number) {
+    if (indices.length !== this.shape.length) {
+      throw new Error(`set: indices length ${indices.length} does not match tensor rank ${this.shape.length}`);
+    }
+    let flatIndex = 0;
+    for (let i = 0; i < indices.length; i++) {
+      if (indices[i] < 0 || indices[i] >= this.shape[i]) {
+        throw new Error(`set: index ${indices[i]} out of bounds for dimension ${i} with size ${this.shape[i]}`);
+      }
+      flatIndex += indices[i] * this.strides[i];
+    }
+    // Adjust for offset
+    flatIndex += this.offset / 4; // offset is in bytes, strides are in elements
+    Dispatcher.instance.set(this.id, flatIndex, value);
   }
 
   dispose() {
@@ -230,29 +276,7 @@ export class Tensor {
     return this.runUnaryOp("LOG");
   }
 
-  setValue(indices: number[], value: number) {
-    // Calculate flat index
-    let flatIndex = 0;
-    let stride = 1;
-    for (let i = this.shape.length - 1; i >= 0; i--) {
-      flatIndex += indices[i] * stride;
-      stride *= this.shape[i];
-    }
-
-    Dispatcher.instance.set(this.id, flatIndex, value);
-  }
-
-  async getValue(indices: number[]): Promise<number> {
-    // Calculate flat index
-    let flatIndex = 0;
-    let stride = 1;
-    for (let i = this.shape.length - 1; i >= 0; i--) {
-      flatIndex += indices[i] * stride;
-      stride *= this.shape[i];
-    }
-
-    return await Dispatcher.instance.readValue(this.id, flatIndex);
-  }
+  // ...existing code...
 
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
