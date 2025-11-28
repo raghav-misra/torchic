@@ -10,12 +10,46 @@ export const GradMode = {
   enabled: true,
 };
 
+// Global state for manual memory management tracking
+let _activeTracking: Set<Tensor> | null = null;
+
 export async function noGrad<T>(fn: () => Promise<T>): Promise<T> {
   const prev = GradMode.enabled;
   GradMode.enabled = false;
   return fn().finally(() => {
     GradMode.enabled = prev;
   });
+}
+
+export function crossEntropy(input: Tensor, target: Tensor): Tensor {
+  // input: [Batch, Classes] (logits)
+  // target: [Batch, Classes] (one-hot probabilities)
+
+  const probs = input.softmax(-1);
+  // Add epsilon to avoid log(0)
+  const epsilon = Tensor.fromData([1e-7], [1]);
+  const logProbs = probs.add(epsilon).log();
+
+  // -sum(target * log(probs)) / N
+  return target.mul(logProbs).neg().sum(-1).mean();
+}
+
+export async function trackTensors<T>(fn: () => Promise<T>): Promise<T> {
+  if (_activeTracking) {
+    throw new Error("Nested tracking not supported yet");
+  }
+  _activeTracking = new Set();
+  try {
+    return await fn();
+  } finally {
+    const tracked = _activeTracking;
+    _activeTracking = null;
+    if (tracked) {
+      for (const t of tracked) {
+        t.dispose();
+      }
+    }
+  }
 }
 
 export interface OpParams {
@@ -46,26 +80,6 @@ export class Tensor {
   params: OpParams = {};
   isDisposed: boolean = false;
 
-  // Manual memory management tracking
-  private static _activeTracking: Set<Tensor> | null = null;
-
-  static startTracking() {
-    if (Tensor._activeTracking) {
-      throw new Error("Nested tracking not supported yet");
-    }
-    Tensor._activeTracking = new Set();
-  }
-
-  static endTracking() {
-    const tracked = Tensor._activeTracking;
-    Tensor._activeTracking = null;
-    if (tracked) {
-      for (const t of tracked) {
-        t.dispose();
-      }
-    }
-  }
-
   constructor(
     id: string,
     shape: number[],
@@ -81,8 +95,8 @@ export class Tensor {
     // Register for automatic cleanup when this JS object is GC'd
     registry.register(this, this.id, this);
 
-    if (Tensor._activeTracking) {
-      Tensor._activeTracking.add(this);
+    if (_activeTracking) {
+      _activeTracking.add(this);
     }
   }
 
@@ -184,18 +198,7 @@ export class Tensor {
     return new Tensor(id, shape, requiresGrad);
   }
 
-  static crossEntropy(input: Tensor, target: Tensor): Tensor {
-    // input: [Batch, Classes] (logits)
-    // target: [Batch, Classes] (one-hot probabilities)
 
-    const probs = input.softmax(-1);
-    // Add epsilon to avoid log(0)
-    const epsilon = Tensor.fromData([1e-7], [1]);
-    const logProbs = probs.add(epsilon).log();
-
-    // -sum(target * log(probs)) / N
-    return target.mul(logProbs).neg().sum(-1).mean();
-  }
 
   // --- Operations ---
 

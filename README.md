@@ -22,7 +22,7 @@ Literally uninstallable at the moment
 ## Quick Start
 
 ```javascript
-import { Tensor } from 'torchic';
+import { Tensor, noGrad, crossEntropy, trackTensors } from 'torchic';
 
 // Initialize with 4 worker threads
 await Tensor.init(4);
@@ -42,6 +42,12 @@ loss.backward();
 // Read results (async only when reading data)
 console.log('Loss:', await loss.item());
 console.log('Gradient:', await w.grad.toArray());
+
+// Example: using trackTensors to auto-dispose temporaries
+await trackTensors(async () => {
+  const temp = x.add(w);
+  console.log(await temp.item());
+});
 ```
 
 ## Training Example
@@ -69,7 +75,6 @@ for (let epoch = 0; epoch < 100; epoch++) {
   await noGrad(async () => {
     if (w.grad) w.sub_(w.grad.mul(Tensor.fromData([lr], [1])));
     if (b.grad) b.sub_(b.grad.mul(Tensor.fromData([lr], [1])));
-    
     // Zero gradients
     w.grad = null;
     b.grad = null;
@@ -143,8 +148,15 @@ Operations ending with `_` modify the tensor in place:
 ### Static Methods
 
 ```javascript
-// Cross-entropy loss
-Tensor.crossEntropy(logits, target)
+// Cross-entropy loss (direct export)
+import { crossEntropy } from 'torchic';
+const loss = crossEntropy(logits, target);
+
+// Track and auto-dispose temporary tensors (direct export)
+import { trackTensors } from 'torchic';
+await trackTensors(async () => {
+  // ... create temporary tensors ...
+});
 
 // Initialize worker pool
 await Tensor.init(numThreads = 4)

@@ -1,4 +1,4 @@
-import { Tensor } from "../src/index";
+import { Tensor, trackTensors, crossEntropy } from "../src/index";
 
 // one hot helper using tensors
 function oneHot(index: number, dims: number): Tensor {
@@ -79,8 +79,7 @@ async function makemoreMLP() {
   console.log(`Starting training for ${steps} steps...`);
 
   for (let i = 0; i < steps; i++) {
-    Tensor.startTracking();
-    try {
+    await trackTensors(async () => {
       // Construct minibatch
       const batchX: number[] = [];
       const batchY: number[] = [];
@@ -106,14 +105,14 @@ async function makemoreMLP() {
       const h = embCat.matmul(W1).add(b1).relu();
       const logits = h.matmul(W2).add(b2);
 
-      const loss = Tensor.crossEntropy(logits, Y_onehot);
+      const loss = crossEntropy(logits, Y_onehot);
 
       if (i % 100 === 0) {
         const currentLoss = await loss.item();
         console.log(`Step ${i}, Loss: ${currentLoss}`);
         if (Number.isNaN(currentLoss)) {
           console.log("Loss is NaN, stopping training");
-          break;
+          throw new Error("Loss is NaN, stopping training");
         }
       }
 
@@ -132,8 +131,11 @@ async function makemoreMLP() {
         const grad = p.grad as Tensor | null;
         if (grad) p.sub_(grad.mul(lr));
       }
-    } finally {
-      Tensor.endTracking();
+    });
+
+    // Early exit if we hit NaN
+    if (i % 100 === 0 && Number.isNaN(await C.getValue([0, 0]))) {
+      break;
     }
   }
 
@@ -155,17 +157,17 @@ async function makemoreMLP() {
     let contextIdx = [stoi["."], stoi["."], stoi["."]];
 
     while (true) {
-      Tensor.startTracking();
-      const x = Tensor.fromData(contextIdx, [1, 3]);
-      const emb = C.embedding(x);
-      const embCat = emb.reshape([1, blockSize * embeddingDim]);
-      const h = embCat.matmul(W1).add(b1).relu();
-      const logits = h.matmul(W2).add(b2);
-      const probs = logits.softmax();
+      const ix = await trackTensors(async () => {
+        const x = Tensor.fromData(contextIdx, [1, 3]);
+        const emb = C.embedding(x);
+        const embCat = emb.reshape([1, blockSize * embeddingDim]);
+        const h = embCat.matmul(W1).add(b1).relu();
+        const logits = h.matmul(W2).add(b2);
+        const probs = logits.softmax();
 
-      const probsArray = await probs.toArray();
-      const ix = sample(probsArray);
-      Tensor.endTracking();
+        const probsArray = await probs.toArray();
+        return sample(probsArray);
+      });
 
       const char = itos[ix];
       out += char;
