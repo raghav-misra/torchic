@@ -56,13 +56,7 @@ function estimateMemoryMB(
 }
 
 function detectCores(): number {
-  if (
-    typeof navigator !== "undefined" &&
-    (navigator as any).hardwareConcurrency
-  ) {
-    return (navigator as any).hardwareConcurrency;
-  }
-  return 4;
+  return navigator?.hardwareConcurrency ?? 4;
 }
 
 function chooseThreadCount(
@@ -233,14 +227,18 @@ async function makemoreMLP() {
 
       if (globalStep % 100 === 0) {
         console.log(
-          `Step ${globalStep}, loss: ${lossValue} (step time ${(elapsedMs / 1000).toFixed(3)}s)`
+          `Step ${globalStep}, loss: ${lossValue} (step time ${(
+            elapsedMs / 1000
+          ).toFixed(3)}s)`
         );
       }
 
       if ((globalStep + 1) % 100 === 0) {
         const count = Math.min(100, stepTimes.length);
         const avgMs = windowSum / count;
-        console.log(`Avg step time (last ${count}): ${(avgMs / 1000).toFixed(3)}s`);
+        console.log(
+          `Avg step time (last ${count}): ${(avgMs / 1000).toFixed(3)}s`
+        );
       }
 
       globalStep++;
@@ -249,7 +247,9 @@ async function makemoreMLP() {
     // end of epoch: report epoch stats and decay LR
     const epochAvgLoss = epochStepCount > 0 ? epochLossSum / epochStepCount : 0;
     console.log(
-      `Epoch ${epoch + 1}/${numEpochs} finished — avg loss: ${epochAvgLoss.toFixed(
+      `Epoch ${
+        epoch + 1
+      }/${numEpochs} finished — avg loss: ${epochAvgLoss.toFixed(
         6
       )} — steps this epoch: ${epochStepCount}`
     );
