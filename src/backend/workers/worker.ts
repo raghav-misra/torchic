@@ -1,16 +1,16 @@
 import { MemoryAllocator } from "./memory";
-import * as elementwise from "../kernels/elementwise";
-import * as matmul from "../kernels/matmul";
-import * as transpose from "../kernels/transpose";
-import * as reductions from "../kernels/reductions";
-import * as embedding from "../kernels/embedding";
-import { defineWorkerOnMessage } from "../utils";
+import * as elementwise from "./kernels/elementwise";
+import * as matmul from "./kernels/matmul";
+import * as transpose from "./kernels/transpose";
+import * as reductions from "./kernels/reductions";
+import * as embedding from "./kernels/embedding";
+import { defineWorkerOnMessage } from "../../shared/utils";
 import {
   CoordinatorRequest,
   ComputeRequest,
   ComputeResponse,
   TypedPort,
-} from "../types";
+} from "../../shared/types";
 
 // Types
 type WorkerRole = "COORDINATOR" | "COMPUTE";

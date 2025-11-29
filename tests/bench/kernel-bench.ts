@@ -1,5 +1,5 @@
-import { matmul as matmulKernel } from "../../src/kernels/matmul";
-import { add as addKernel } from "../../src/kernels/elementwise";
+import { matmul as matmulKernel } from "../../src/backend/workers/kernels/matmul";
+import { add as addKernel } from "../../src/backend/workers/kernels/elementwise";
 
 function randArray(len: number) {
   const a = new Float32Array(len);

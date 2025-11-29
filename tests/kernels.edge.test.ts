@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-import * as elementwise from '../src/kernels/elementwise';
-import * as reductions from '../src/kernels/reductions';
-import * as transpose from '../src/kernels/transpose';
-import * as matmul from '../src/kernels/matmul';
-import * as embedding from '../src/kernels/embedding';
+import * as elementwise from '../src/backend/workers/kernels/elementwise';
+import * as reductions from '../src/backend/workers/kernels/reductions';
+import * as transpose from '../src/backend/workers/kernels/transpose';
+import * as matmul from '../src/backend/workers/kernels/matmul';
+import * as embedding from '../src/backend/workers/kernels/embedding';
 
 function randFloat32(n: number, seed = 42) {
   const r = new Float32Array(n);

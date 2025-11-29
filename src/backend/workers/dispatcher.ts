@@ -1,0 +1,256 @@
+import {
+  TypedWorker,
+  CoordinatorRequest,
+  CoordinatorResponse,
+  ComputeRequest,
+} from "../../shared/types";
+
+export class WorkerDispatcher {
+  private coordinator: TypedWorker<
+    CoordinatorRequest,
+    CoordinatorResponse
+  > | null = null;
+  private sab: SharedArrayBuffer | null = null;
+  private computeWorkers: Worker[] = []; // We don't talk to these directly much
+  private callbacks: Map<string, (data: any) => void> = new Map();
+  private tensorIdCounter: number = 0;
+
+  async init(
+    threadCount: number = 4,
+    memorySizeMB: number = 256
+  ): Promise<void> {
+    if (this.coordinator) return; // Already initialized
+
+    // Create SharedArrayBuffer
+    const sab = new SharedArrayBuffer(1024 * 1024 * memorySizeMB);
+    this.sab = sab;
+
+    // 1. Spawn Coordinator
+    // Vite handles this correctly if we point to the TS file
+    const coordWorker = new Worker(new URL("./worker.ts", import.meta.url), {
+      type: "module",
+    });
+    this.coordinator = new TypedWorker(coordWorker);
+    this.setupWorkerHandler(this.coordinator, "Coordinator");
+
+    // 2. Spawn Compute Workers and establish channels
+    for (let i = 0; i < threadCount; i++) {
+      const worker = new Worker(new URL("./worker.ts", import.meta.url), {
+        type: "module",
+      });
+      this.computeWorkers.push(worker);
+
+      // We don't necessarily need to listen to compute workers in the main thread
+      // unless we want to catch errors.
+      worker.onerror = (err) =>
+        console.error(`Compute-${i} System Error:`, err);
+
+      // Create a direct channel between Coordinator and this Compute Worker
+      const channel = new MessageChannel();
+
+      // Send port1 to Coordinator
+      this.coordinator.postMessage(
+        {
+          type: "ADD_WORKER",
+          payload: { workerId: i },
+        },
+        [channel.port1]
+      ); // Transfer ownership
+
+      // Send port2 to Compute Worker
+      // We manually post here because ComputeRequest is for the internal channel,
+      // but INIT_WORKER is special as it comes from Main
+      const initMsg: ComputeRequest = {
+        type: "INIT_WORKER",
+        payload: {
+          workerId: i,
+          role: "COMPUTE",
+          buffer: sab,
+        },
+      };
+      worker.postMessage(initMsg, [channel.port2]);
+    }
+
+    // 3. Initialize Coordinator with SAB
+    return new Promise((resolve) => {
+      const reqId = this.generateId();
+      this.callbacks.set(reqId, () => resolve());
+
+      this.coordinator!.postMessage({
+        type: "INIT_COORDINATOR",
+        id: reqId,
+        payload: {
+          buffer: sab,
+          totalWorkers: threadCount,
+        },
+      });
+    });
+  }
+
+  // Shutdown coordinator and compute workers, allowing re-initialization.
+  shutdown(): void {
+    try {
+      if (this.coordinator) {
+        this.coordinator.terminate();
+        this.coordinator = null as any;
+      }
+    } catch (e) {
+      console.warn("Error terminating coordinator:", e);
+    }
+
+    try {
+      for (const w of this.computeWorkers) {
+        try {
+          w.terminate();
+        } catch (e) {
+          console.warn("Error terminating compute worker:", e);
+        }
+      }
+    } finally {
+      this.computeWorkers = [];
+    }
+
+    this.callbacks.clear();
+    this.tensorIdCounter = 0;
+  }
+
+  private setupWorkerHandler(
+    worker: TypedWorker<any, CoordinatorResponse>,
+    name: string
+  ) {
+    worker.onMessage((data) => {
+      const { id, data: responseData, error } = data;
+
+      if (id && this.callbacks.has(id)) {
+        const callback = this.callbacks.get(id)!;
+        if (error) {
+          console.error(`${name} Error:`, error);
+        } else {
+          callback(responseData);
+        }
+        this.callbacks.delete(id);
+      } else if (error) {
+        console.error(`${name} Unhandled Error:`, error);
+      }
+    });
+
+    worker.onError((err) => {
+      console.error(`${name} System Error:`, err);
+    });
+  }
+
+  // Generate a unique ID for a new tensor
+  nextTensorId(): string {
+    return `t_${this.tensorIdCounter++}`;
+  }
+
+  // --- Commands (Sent to Coordinator) ---
+
+  allocate(tensorId: string, size: number): void {
+    this.postToCoordinator({
+      type: "ALLOC",
+      payload: { id: tensorId, size },
+    });
+  }
+
+  allocateView(tensorId: string, parentId: string, offsetBytes?: number): void {
+    this.postToCoordinator({
+      type: "ALLOC_VIEW",
+      payload: { id: tensorId, parentId, offset: offsetBytes },
+    });
+  }
+
+  free(tensorId: string): void {
+    this.postToCoordinator({
+      type: "FREE",
+      payload: { id: tensorId },
+    });
+  }
+
+  runOp(op: string, inputs: string[], output: string, params: any = {}): void {
+    this.postToCoordinator({
+      type: "OP",
+      payload: { op, inputs, output, params },
+    });
+  }
+
+  set(tensorId: string, offset: number, value: number): void {
+    this.postToCoordinator({
+      type: "SET",
+      payload: { id: tensorId, offset, value },
+    });
+  }
+
+  write(tensorId: string, data: Float32Array): void {
+    this.postToCoordinator({
+      type: "WRITE",
+      payload: { id: tensorId, data },
+    });
+  }
+
+  read(tensorId: string): Promise<Float32Array> {
+    return new Promise((resolve) => {
+      const reqId = this.generateId();
+      this.callbacks.set(reqId, (data) => {
+        resolve(data.data);
+      });
+
+      this.postToCoordinator({
+        type: "READ",
+        id: reqId,
+        payload: { id: tensorId },
+      });
+    });
+  }
+
+  /**
+   * Return a zero-copy view over the SharedArrayBuffer for the given tensor id.
+   * This asks the coordinator for the tensor's offset/size and creates a Float32Array
+   * view on the main thread without copying the underlying data.
+   * Note: caller must ensure the tensor is not being concurrently written by workers.
+   */
+  readView(tensorId: string): Promise<Float32Array> {
+    if (!this.sab)
+      throw new Error("Dispatcher not initialized with SharedArrayBuffer");
+    return new Promise((resolve) => {
+      const reqId = this.generateId();
+      this.callbacks.set(reqId, (data) => {
+        const { offset, size } = data;
+        const view = new Float32Array(this.sab!, offset, size / 4);
+        resolve(view);
+      });
+
+      this.postToCoordinator({
+        type: "READ_VIEW",
+        id: reqId,
+        payload: { id: tensorId },
+      });
+    });
+  }
+
+  readValue(tensorId: string, offset: number): Promise<number> {
+    return new Promise((resolve) => {
+      const reqId = this.generateId();
+      this.callbacks.set(reqId, (data) => {
+        resolve(data.value);
+      });
+
+      this.postToCoordinator({
+        type: "READ_VALUE",
+        id: reqId,
+        payload: { id: tensorId, offset },
+      });
+    });
+  }
+
+  private postToCoordinator(command: CoordinatorRequest) {
+    if (!this.coordinator) {
+      throw new Error("Dispatcher not initialized. Call init() first.");
+    }
+    this.coordinator.postMessage(command);
+  }
+
+  private generateId(): string {
+    return Math.random().toString(36).substring(2, 15);
+  }
+}

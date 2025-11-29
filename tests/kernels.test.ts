@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 
-import * as matmul from "../src/kernels/matmul";
-import * as elementwise from "../src/kernels/elementwise";
-import * as reductions from "../src/kernels/reductions";
+import * as matmul from "../src/backend/workers/kernels/matmul";
+import * as elementwise from "../src/backend/workers/kernels/elementwise";
+import * as reductions from "../src/backend/workers/kernels/reductions";
 
 function randFloat32(n: number, seed = 42) {
   const r = new Float32Array(n);
