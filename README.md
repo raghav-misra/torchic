@@ -244,6 +244,10 @@ The table captures timings for executing parallelized matrix multiplication acro
 |              |     | $256 \times 256 \times 256$ |      12.210 | 2.748  |
 |              |     | $512 \times 512 \times 512$ |     110.615 | 2.427  |
 
+The observed limited speedup from 4 → 8 threads is likely due to memory-bandwidth saturation, increased cache pressure when working sets exceed on-chip caches, and the use of logical (hyper) threads beyond available physical cores. Using a blocked (tiled) matrix-multiplication approach, where each thread works on cache-sized tiles and accumulates locally, would greatly improve data locality and scaling across more cores.
+
+The GFLOPs obviously don't compare to higher-end CPUs with optimized kernels, let alone GPUs. CPU kernels which tend to get 100+ GFLOPs essentially need to take advantage of SIMD instruction sets and do not incur the overhead of JavaScript (lol). So pre-optimized kernels in WASM are the necessary next step for non-trivial performance gains.
+
 ### Test machine / environment
 
 | Field                            | Value                                                |
@@ -254,8 +258,6 @@ The table captures timings for executing parallelized matrix multiplication acro
 | RAM                              | 16.0 GB (15.8 GB usable)                             |
 | OS                               | Windows 11 Version 25H2 (Build 26200.7171)           |
 | Browser (name + version)         | Microsoft Edge 142.0.3595.94                         |
-
-The observed limited speedup from 4 → 8 threads is likely due to memory-bandwidth saturation, increased cache pressure when working sets exceed on-chip caches, and the use of logical (hyper) threads beyond available physical cores. Using a blocked (tiled) matrix-multiplication approach, where each thread works on cache-sized tiles and accumulates locally, would greatly improve data locality and scaling across more cores.
 
 ## Future Improvements
 
