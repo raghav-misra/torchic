@@ -189,8 +189,6 @@ async function makemoreMLP() {
 
   let globalStep = 0;
 
-  const stepsPerEpoch = Math.ceil(datasetSize / batchSize);
-
   for (let epoch = 0; epoch < numEpochs; epoch++) {
     shuffleInPlace(indices);
     let epochLossSum = 0;
