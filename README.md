@@ -255,6 +255,15 @@ The table captures timings for executing parallelized matrix multiplication acro
 | OS                               | Windows 11 Version 25H2 (Build 26200.7171)           |
 | Browser (name + version)         | Microsoft Edge 142.0.3595.94                         |
 
+The observed limited speedup from 4 → 8 threads is likely due to memory-bandwidth saturation, increased cache pressure when working sets exceed on-chip caches, and the use of logical (hyper) threads beyond available physical cores. Using a blocked (tiled) matrix-multiplication approach, where each thread works on cache-sized tiles and accumulates locally, would greatly improve data locality and scaling across more cores.
+
+## Future Improvements
+
+- **CPU backend (WASM/C++):** Move compute kernels into a WebAssembly backend implemented in C/C++ to eliminate JS interpreter overhead, enable compiler optimizations and SIMD, and yield much higher single-thread FLOPS.
+- **WebGPU backend:** Implement a GPU backend via WebGPU for large kernels and model training where GPU parallelism and memory bandwidth dominate.
+- **Kernel optimizations:** Adopt tiled/blocked matmul, loop unrolling, SIMD intrinsics (in WASM), alignment/padding to avoid false sharing, and an auto-tuning step to pick tile sizes per device.
+- **Benchmarking & profiling:** Add per-worker instrumentation, memory-bandwidth measurements, and automated perf tests to guide optimizations and detect bottlenecks.
+
 ## Project Structure
 
 ```

@@ -47,7 +47,7 @@
           document.getElementById("bench-log").textContent += msg + "\n";
         }
 
-        [1, 2, 4, 6].forEach((threadCount) =>
+        [1, 2, 4, 8].forEach((threadCount) =>
           document
             .getElementById(`bench-${threadCount}`)
             .addEventListener("click", async () => {
