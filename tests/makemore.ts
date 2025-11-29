@@ -1,183 +1,300 @@
-import { Tensor, trackTensors, crossEntropy } from "../src/index";
+import { Tensor, trackTensors, crossEntropy, noGrad } from "../src/index";
 
-// one hot helper using tensors
-function oneHot(index: number, dims: number): Tensor {
-  const tensor = Tensor.zeros([dims]);
-  tensor.setValue([index], 1);
-  return tensor;
-}
-
-async function makemoreMLP() {
-  await Tensor.init(8, 1024);
-
-  /*
-    3 Character block size.
-    Input is transformed into embeddings.
-    Embeddings transformed by hidden layer of weights and biases.
-    Then character probabilities are yielded with softmax.
-  */
-
-  const response = await fetch(
-    "https://raw.githubusercontent.com/karpathy/makemore/master/names.txt"
-  );
-  const text = await response.text();
-  const names = text.split("\n").filter((n) => n.length > 0);
-
-  const blockSize = 3;
-  const Xarray: number[] = [];
-  const Yarray: number[] = [];
-
-  // init maps for all letters to integers and back
+// --- Helpers ---------------------------------------------------------------
+function buildVocab(chars: string) {
   const stoi: { [key: string]: number } = {};
   const itos: { [key: number]: string } = {};
-  const chars = "abcdefghijklmnopqrstuvwxyz.";
   for (let i = 0; i < chars.length; i++) {
     stoi[chars[i]] = i;
     itos[i] = chars[i];
   }
+  return { stoi, itos };
+}
 
-  // build the dataset
+function buildDataset(
+  names: string[],
+  stoi: { [key: string]: number },
+  blockSize: number
+) {
+  const Xarray: number[][] = [];
+  const Yarray: number[] = [];
+
   for (const word of names) {
-    const context = new Array(3).fill(".");
-
+    const context = new Array(blockSize).fill(".");
     for (const char of word + ".") {
       const ix = stoi[char];
-
-      for (const c of context) {
-        Xarray.push(stoi[c]);
-      }
+      Xarray.push(context.map((c) => stoi[c]));
       Yarray.push(ix);
-
       context.shift();
       context.push(char);
     }
   }
 
-  // convert arrays to tensors
-  // We will use minibatches instead of full dataset
-  // const X = Tensor.fromData(Xarray, [Xarray.length / blockSize, blockSize]);
-  // const Y = Tensor.fromData(Yarray, [Yarray.length, 1]);
+  return { Xarray, Yarray };
+}
 
-  // Model hyperparameters
-  const embeddingDim = 24;
-  const hiddenSize = 500;
-  const scale = Tensor.fromData([0.1], [1]);
+function estimateMemoryMB(
+  vocabSize: number,
+  embeddingDims: number,
+  blockSize: number,
+  batchSize: number,
+  hiddenSize: number
+) {
+  // loose peak floats: params+grads + batch temps (embeddings, hidden, logits/softmax)
+  const params =
+    vocabSize * embeddingDims + // Wembed
+    blockSize * embeddingDims * hiddenSize + // Whidden
+    hiddenSize * vocabSize + // Wout
+    hiddenSize +
+    vocabSize; // biases
 
-  const C = Tensor.randn([27, embeddingDim], true).mul_(scale);
-  const W1 = Tensor.randn([blockSize * embeddingDim, hiddenSize], true).mul_(
-    scale
+  const peakFloats =
+    2 * params +
+    batchSize * (blockSize * embeddingDims + hiddenSize + 2 * vocabSize);
+  const estimatedMB = Math.ceil((peakFloats * 4) / (1024 * 1024)) + 8; // add slack
+  return estimatedMB;
+}
+
+function detectCores(): number {
+  if (
+    typeof navigator !== "undefined" &&
+    (navigator as any).hardwareConcurrency
+  ) {
+    return (navigator as any).hardwareConcurrency;
+  }
+  return 4;
+}
+
+function chooseThreadCount(
+  rows: number,
+  minRowsPerThread = 8,
+  maxThreads = 8
+): number {
+  const cores = detectCores();
+  const maxByWork = Math.max(
+    1,
+    Math.floor(rows / Math.max(1, minRowsPerThread))
   );
-  const b1 = Tensor.zeros([hiddenSize], true);
-  const W2 = Tensor.randn([hiddenSize, 27], true).mul_(scale);
-  const b2 = Tensor.zeros([27], true);
+  return Math.min(cores, maxByWork, maxThreads);
+}
 
-  const parameters = [C, W1, b1, W2, b2];
+function createModel(
+  vocabSize: number,
+  embeddingDims: number,
+  blockSize: number,
+  hiddenSize: number,
+  initialLR: number
+) {
+  const Wembed = Tensor.randn([vocabSize, embeddingDims], true);
+  const Whidden = Tensor.randn([blockSize * embeddingDims, hiddenSize], true);
+  const bhidden = Tensor.zeros([1, hiddenSize], true);
+  const Wout = Tensor.randn([hiddenSize, vocabSize], true);
+  const bout = Tensor.zeros([1, vocabSize], true);
 
-  const steps = 30000;
+  const parameters: Tensor[] = [Wembed, Whidden, bhidden, Wout, bout];
+
+  const learningRate = Tensor.fromData([initialLR]);
+  const initScale = Tensor.fromData([0.01]);
+  Wembed.mul_(initScale);
+  Whidden.mul_(initScale);
+  Wout.mul_(initScale);
+
+  return { Wembed, Whidden, bhidden, Wout, bout, parameters, learningRate };
+}
+
+// helper to sample index from probs Float32Array
+function sampleFromProbArray(arr: Float32Array) {
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) sum += arr[i];
+  let r = Math.random() * sum;
+  for (let i = 0; i < arr.length; i++) {
+    r -= arr[i];
+    if (r <= 0) return i;
+  }
+  return arr.length - 1;
+}
+
+// --- Main -----------------------------------------------------------------
+async function makemoreMLP() {
+  const names = await fetch(
+    "https://raw.githubusercontent.com/karpathy/makemore/master/names.txt"
+  )
+    .then((res) => res.text())
+    .then((text) => text.split("\n").filter((n) => n.length > 0));
+
+  console.log("Number of names:", names.length);
+
+  const chars = "abcdefghijklmnopqrstuvwxyz.";
+  const { stoi, itos } = buildVocab(chars);
+
+  // hyperparameters
+  const vocabSize = chars.length; // 26 letters + '.'
+  const embeddingDims = 10;
+  const blockSize = 5;
   const batchSize = 256;
+  const hiddenSize = 300;
 
-  console.log(`Starting training for ${steps} steps...`);
+  const estimatedMB = estimateMemoryMB(
+    vocabSize,
+    embeddingDims,
+    blockSize,
+    batchSize,
+    hiddenSize
+  );
+  console.log(`Estimated memory (MB): ${estimatedMB}`);
 
-  for (let i = 0; i < steps; i++) {
-    await trackTensors(async () => {
-      // Construct minibatch
-      const batchX: number[] = [];
-      const batchY: number[] = [];
+  const threads = chooseThreadCount(Math.max(1, batchSize));
+  console.log(`Chosen threads: ${threads}`);
 
-      for (let j = 0; j < batchSize; j++) {
-        const idx = Math.floor(Math.random() * Yarray.length);
-        batchX.push(Xarray[idx * 3], Xarray[idx * 3 + 1], Xarray[idx * 3 + 2]);
-        batchY.push(Yarray[idx]);
-      }
+  const { Xarray, Yarray } = buildDataset(names, stoi, blockSize);
 
-      const Xb = Tensor.fromData(batchX, [batchSize, blockSize]);
+  // Initialize dispatcher with auto-chosen threads and estimated memory (MB)
+  await Tensor.init(threads, estimatedMB);
 
-      // Loss target
-      const Y_onehot_array = new Float32Array(batchSize * 27);
-      for (let j = 0; j < batchSize; j++) {
-        Y_onehot_array[j * 27 + batchY[j]] = 1.0;
-      }
-      const Y_onehot = Tensor.fromData(Y_onehot_array, [batchSize, 27]);
+  // Avoid creating full-dataset Tensors to reduce memory pressure.
+  // Batches are created from the JS arrays (`Xarray`, `Yarray`) on-the-fly.
+  console.log("Dataset rows (tokens):", Xarray.length);
+  const datasetSize = Xarray.length;
 
-      // Forward
-      const embeddings = C.embedding(Xb);
-      const embCat = embeddings.reshape([batchSize, blockSize * embeddingDim]);
-      const h = embCat.matmul(W1).add(b1).relu();
-      const logits = h.matmul(W2).add(b2);
+  // learning rate schedule config
+  const lrConfig = { initial: 0.1, decayRate: 0.95 };
+  const numEpochs = 5; // run this many full passes over the dataset
 
-      const loss = crossEntropy(logits, Y_onehot);
+  const { Wembed, Whidden, bhidden, Wout, bout, parameters, learningRate } =
+    createModel(
+      vocabSize,
+      embeddingDims,
+      blockSize,
+      hiddenSize,
+      lrConfig.initial
+    );
 
-      if (i % 100 === 0) {
-        const currentLoss = await loss.item();
-        console.log(`Step ${i}, Loss: ${currentLoss}`);
-        if (Number.isNaN(currentLoss)) {
-          console.log("Loss is NaN, stopping training");
-          throw new Error("Loss is NaN, stopping training");
-        }
-      }
+  // JS-side current lr value (we update the scalar Tensor each schedule step)
+  let lrValue = lrConfig.initial;
 
-      // Zero Grads
-      for (const p of parameters) {
-        p.grad = null;
-      }
+  // Training loop (minibatches) with shuffling per epoch
+  const stepTimes: number[] = [];
+  let windowSum = 0; // ms sum of last up to 100 steps
 
-      // Backward
-      loss.backward();
-
-      // Update
-      const currentLr = i < 20000 ? 0.1 : 0.01;
-      const lr = Tensor.fromData([currentLr], [1]);
-      for (const p of parameters) {
-        const grad = p.grad as Tensor | null;
-        if (grad) p.sub_(grad.mul(lr));
-      }
-    });
-
-    // Early exit if we hit NaN
-    if (i % 100 === 0 && Number.isNaN(await C.getValue([0, 0]))) {
-      break;
+  // build indices and shuffle helper
+  const indices = Array.from({ length: datasetSize }, (_, i) => i);
+  function shuffleInPlace(arr: number[]) {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      const tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
     }
   }
 
-  console.log("Training complete. Generating names...");
+  let globalStep = 0;
 
-  // Inference
-  function sample(probs: Float32Array): number {
-    const r = Math.random();
-    let cdf = 0;
-    for (let i = 0; i < probs.length; i++) {
-      cdf += probs[i];
-      if (r < cdf) return i;
-    }
-    return probs.length - 1;
-  }
+  const stepsPerEpoch = Math.ceil(datasetSize / batchSize);
 
-  for (let i = 0; i < 10; i++) {
-    let out = "";
-    let contextIdx = [stoi["."], stoi["."], stoi["."]];
+  for (let epoch = 0; epoch < numEpochs; epoch++) {
+    shuffleInPlace(indices);
+    let epochLossSum = 0;
+    let epochStepCount = 0;
 
-    while (true) {
-      const ix = await trackTensors(async () => {
-        const x = Tensor.fromData(contextIdx, [1, 3]);
-        const emb = C.embedding(x);
-        const embCat = emb.reshape([1, blockSize * embeddingDim]);
-        const h = embCat.matmul(W1).add(b1).relu();
-        const logits = h.matmul(W2).add(b2);
-        const probs = logits.softmax();
+    for (let pos = 0; pos < datasetSize; pos += batchSize) {
+      // decay learning rate on schedule (based on globalStep)
+      const batchIdx = indices.slice(pos, pos + batchSize);
+      const Xbatch = Tensor.fromData(batchIdx.map((i) => Xarray[i]));
+      const Ybatch = Tensor.fromData(batchIdx.map((i) => Yarray[i]));
 
-        const probsArray = await probs.toArray();
-        return sample(probsArray);
+      const t0 = performance.now();
+
+      const lossValue = await trackTensors(async () => {
+        for (const p of parameters) p.grad = null;
+
+        const emb = Wembed.embedding(Xbatch); // [B, blockSize, embeddingDims]
+        const B = emb.shape[0];
+        const embFlat = emb.reshape([B, blockSize * embeddingDims]);
+
+        const hidden = embFlat.matmul(Whidden).add(bhidden).relu();
+        const logits = hidden.matmul(Wout).add(bout);
+
+        const loss = crossEntropy(logits, Ybatch);
+
+        loss.backward();
+
+        for (const p of parameters) p.sub_(p.grad!.mul(learningRate));
+
+        return await loss.item();
       });
 
-      const char = itos[ix];
-      out += char;
-      if (char === ".") break;
+      const t1 = performance.now();
+      const elapsedMs = t1 - t0;
+      stepTimes.push(elapsedMs);
+      windowSum += elapsedMs;
+      if (stepTimes.length > 100)
+        windowSum -= stepTimes[stepTimes.length - 101];
 
-      contextIdx.shift();
-      contextIdx.push(ix);
+      epochLossSum += lossValue;
+      epochStepCount++;
+
+      if (globalStep % 100 === 0) {
+        console.log(
+          `Step ${globalStep}, loss: ${lossValue} (step time ${(elapsedMs / 1000).toFixed(3)}s)`
+        );
+      }
+
+      if ((globalStep + 1) % 100 === 0) {
+        const count = Math.min(100, stepTimes.length);
+        const avgMs = windowSum / count;
+        console.log(`Avg step time (last ${count}): ${(avgMs / 1000).toFixed(3)}s`);
+      }
+
+      globalStep++;
     }
-    console.log(out);
+
+    // end of epoch: report epoch stats and decay LR
+    const epochAvgLoss = epochStepCount > 0 ? epochLossSum / epochStepCount : 0;
+    console.log(
+      `Epoch ${epoch + 1}/${numEpochs} finished — avg loss: ${epochAvgLoss.toFixed(
+        6
+      )} — steps this epoch: ${epochStepCount}`
+    );
+
+    // decay learning rate once per epoch
+    lrValue *= lrConfig.decayRate;
+    learningRate.set([0], lrValue);
+    console.log(`Decayed learning rate after epoch ${epoch + 1}: ${lrValue}`);
   }
+
+  // --- Inference: generate 10 names starting from context "..." ---
+  console.log("Starting inference (10 samples)");
+
+  await noGrad(async () => {
+    for (let sampleIdx = 0; sampleIdx < 10; sampleIdx++) {
+      let context = new Array(blockSize).fill(".");
+      let generated = "";
+
+      while (true) {
+        // build input tensor and run forward inside trackTensors so temps get disposed
+        const probsArr: Float32Array = await trackTensors(async () => {
+          const Xctx = Tensor.fromData([context.map((c) => stoi[c])]); // shape [1, B]
+          const emb = Wembed.embedding(Xctx);
+          const embFlat = emb.reshape([1, blockSize * embeddingDims]);
+          const hidden = embFlat.matmul(Whidden).add(bhidden).relu();
+          const logits = hidden.matmul(Wout).add(bout);
+          const probs = logits.softmax(-1);
+          return await probs.toArray();
+        });
+
+        const ix = sampleFromProbArray(probsArr);
+        const ch = itos[ix];
+        if (ch === ".") break;
+        generated += ch;
+
+        // advance context
+        context.shift();
+        context.push(ch);
+      }
+
+      console.log(`Sample ${sampleIdx + 1}: ${generated}`);
+    }
+  });
 }
 
 makemoreMLP();

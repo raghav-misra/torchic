@@ -1,5 +1,8 @@
 import { Dispatcher } from "../backend/dispatcher";
 
+type NestedArray = number | NestedArray[];
+type TensorLike = NestedArray | Float32Array | Tensor;
+
 // Automatic memory management
 const registry = new FinalizationRegistry((id: string) => {
   Dispatcher.instance.free(id);
@@ -21,18 +24,7 @@ export async function noGrad<T>(fn: () => Promise<T>): Promise<T> {
   });
 }
 
-export function crossEntropy(input: Tensor, target: Tensor): Tensor {
-  // input: [Batch, Classes] (logits)
-  // target: [Batch, Classes] (one-hot probabilities)
-
-  const probs = input.softmax(-1);
-  // Add epsilon to avoid log(0)
-  const epsilon = Tensor.fromData([1e-7], [1]);
-  const logProbs = probs.add(epsilon).log();
-
-  // -sum(target * log(probs)) / N
-  return target.mul(logProbs).neg().sum(-1).mean();
-}
+// ...existing code...
 
 export async function trackTensors<T>(fn: () => Promise<T>): Promise<T> {
   if (_activeTracking) {
@@ -106,15 +98,21 @@ export class Tensor {
    */
   slice(ranges: Array<[number, number]>): Tensor {
     if (ranges.length !== this.shape.length) {
-      throw new Error(`slice: ranges length ${ranges.length} does not match tensor rank ${this.shape.length}`);
+      throw new Error(
+        `slice: ranges length ${ranges.length} does not match tensor rank ${this.shape.length}`
+      );
     }
     const newShape = ranges.map(([start, end], i) => {
       if (start < 0 || end > this.shape[i] || start >= end) {
-        throw new Error(`Invalid slice range [${start}, ${end}) for dimension ${i} with size ${this.shape[i]}`);
+        throw new Error(
+          `Invalid slice range [${start}, ${end}) for dimension ${i} with size ${this.shape[i]}`
+        );
       }
       return end - start;
     });
-    const newOffset = this.offset + ranges.reduce((acc, [start], i) => acc + start * this.strides[i], 0);
+    const newOffset =
+      this.offset +
+      ranges.reduce((acc, [start], i) => acc + start * this.strides[i], 0);
     // Strides remain the same
     return new Tensor(
       Dispatcher.instance.nextTensorId(),
@@ -132,12 +130,16 @@ export class Tensor {
    */
   set(indices: number[], value: number) {
     if (indices.length !== this.shape.length) {
-      throw new Error(`set: indices length ${indices.length} does not match tensor rank ${this.shape.length}`);
+      throw new Error(
+        `set: indices length ${indices.length} does not match tensor rank ${this.shape.length}`
+      );
     }
     let flatIndex = 0;
     for (let i = 0; i < indices.length; i++) {
       if (indices[i] < 0 || indices[i] >= this.shape[i]) {
-        throw new Error(`set: index ${indices[i]} out of bounds for dimension ${i} with size ${this.shape[i]}`);
+        throw new Error(
+          `set: index ${indices[i]} out of bounds for dimension ${i} with size ${this.shape[i]}`
+        );
       }
       flatIndex += indices[i] * this.strides[i];
     }
@@ -211,22 +213,74 @@ export class Tensor {
     return Tensor.create(shape, requiresGrad, "RANDN");
   }
 
+  /**
+   * Creates a tensor from nested arrays or flat data. Infers shape if not provided.
+   * @param data Nested array (any depth) or flat array/Float32Array
+   * @param shape Optional shape. If not provided, inferred from data.
+   * @param requiresGrad Whether to track gradients
+   */
   static fromData(
-    data: Float32Array | number[],
-    shape: number[],
+    data: NestedArray | Float32Array,
+    shape?: number[],
     requiresGrad: boolean = false
   ): Tensor {
-    const size = shape.reduce((a, b) => a * b, 1) * 4;
+    // Robust shape inference and efficient flattening.
+    function inferShape(arr: any): number[] {
+      if (arr instanceof Float32Array) return [arr.length];
+      if (!Array.isArray(arr)) return [];
+      const shape: number[] = [];
+      let curr = arr;
+      while (Array.isArray(curr)) {
+        shape.push(curr.length);
+        curr = curr[0];
+      }
+      return shape;
+    }
+
+    function flattenInto(arr: any, out: number[]) {
+      if (arr instanceof Float32Array) {
+        for (let i = 0; i < arr.length; i++) out.push(arr[i]);
+        return;
+      }
+      if (!Array.isArray(arr)) {
+        out.push(arr as number);
+        return;
+      }
+      for (const el of arr) flattenInto(el, out);
+    }
+
+    let inferredShape = shape;
+    let typedData: Float32Array;
+
+    if (inferredShape === undefined) {
+      inferredShape = inferShape(data);
+      if (data instanceof Float32Array) {
+        // Use external Float32Array directly; worker will copy into SharedArrayBuffer
+        typedData = data;
+      } else {
+        const flat: number[] = [];
+        flattenInto(data, flat);
+        typedData = new Float32Array(flat);
+      }
+    } else {
+      if (data instanceof Float32Array) {
+        // Use external Float32Array directly; worker will copy into SharedArrayBuffer
+        typedData = data;
+      } else {
+        const flat: number[] = Array.isArray(data) ? [] : [];
+        if (Array.isArray(data)) flattenInto(data, flat);
+        else flat.push(data as number);
+        typedData = new Float32Array(flat);
+      }
+    }
+
+    const size = inferredShape.reduce((a, b) => a * b, 1) * 4;
     const id = Dispatcher.instance.nextTensorId();
 
     Dispatcher.instance.allocate(id, size);
-
-    // Convert to Float32Array if needed
-    const typedData =
-      data instanceof Float32Array ? data : new Float32Array(data);
     Dispatcher.instance.write(id, typedData);
 
-    return new Tensor(id, shape, requiresGrad);
+    return new Tensor(id, inferredShape!, requiresGrad);
   }
 
   private static create(
@@ -243,8 +297,6 @@ export class Tensor {
 
     return new Tensor(id, shape, requiresGrad);
   }
-
-
 
   // --- Operations ---
 
@@ -410,6 +462,19 @@ export class Tensor {
   }
 
   // --- Autograd ---
+
+  withGrad(): Tensor {
+    this.enableGrad();
+    return this;
+  }
+
+  enableGrad() {
+    this.requiresGrad = true;
+  }
+
+  disableGrad() {
+    this.requiresGrad = false;
+  }
 
   backward() {
     if (!this.requiresGrad) return;
