@@ -1,4 +1,4 @@
-import { Tensor } from "../../src/index";
+import torchic, { Tensor } from "../../src/index";
 
 async function benchMatmulE2E(
   m: number,
@@ -10,7 +10,7 @@ async function benchMatmulE2E(
   const logs: string[] = [];
   const push = (s: string) => logs.push(s);
   push(`Initializing Tensor runtime with ${threads} threads...`);
-  await Tensor.init(threads);
+  await torchic.init({ backend: "workers", threadCount: threads });
 
   const A = Tensor.randn([m, k]);
   const B = Tensor.randn([k, n]);
@@ -91,7 +91,7 @@ export async function runBench(threads: number, log: (msg: string) => void) {
   const t = threads;
   // Ensure previous runtime (if any) is shut down so we can reinit with new thread count
   try {
-    Tensor.shutdown();
+    torchic.shutdown();
   } catch (e) {
     // ignore
   }

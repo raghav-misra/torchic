@@ -1,9 +1,9 @@
-import { dispatcherInstance } from "./init";
+import { dispatcher } from "./dispatcher";
 type NestedArray = number | NestedArray[];
 
 // Automatic memory management
 const registry = new FinalizationRegistry((id: string) => {
-  dispatcherInstance!.free(id);
+  dispatcher!.free(id);
 });
 
 // Global state for gradient computation
@@ -115,9 +115,9 @@ export class Tensor {
     );
 
     // Request coordinator to create a view with the relative byte offset
-    const viewId = dispatcherInstance!.nextTensorId();
+    const viewId = dispatcher!.nextTensorId();
     const relativeOffsetBytes = relativeStartElements * 4; // elements -> bytes
-    dispatcherInstance!.allocateView(viewId, this.id, relativeOffsetBytes);
+    dispatcher!.allocateView(viewId, this.id, relativeOffsetBytes);
 
     // Create Tensor with the correct (JS-side) offset for convenience
     const newOffset = this.offset + relativeOffsetBytes;
@@ -152,14 +152,14 @@ export class Tensor {
     }
     // Adjust for offset
     flatIndex += this.offset / 4; // offset is in bytes, strides are in elements
-    dispatcherInstance!.set(this.id, flatIndex, value);
+    dispatcher!.set(this.id, flatIndex, value);
   }
 
   dispose() {
     if (this.isDisposed) return;
     this.isDisposed = true;
     registry.unregister(this);
-    dispatcherInstance!.free(this.id);
+    dispatcher!.free(this.id);
   }
 
   private static computeStrides(shape: number[]): number[] {
@@ -187,11 +187,11 @@ export class Tensor {
     if (this.isContiguous()) return this;
 
     // Create a new contiguous copy
-    const outId = dispatcherInstance!.nextTensorId();
+    const outId = dispatcher!.nextTensorId();
     const size = this.numElements() * 4;
 
-    dispatcherInstance!.allocate(outId, size);
-    dispatcherInstance!.runOp("MATERIALIZE", [this.id], outId, {
+    dispatcher!.allocate(outId, size);
+    dispatcher!.runOp("MATERIALIZE", [this.id], outId, {
       shape: this.shape,
       strides: this.strides,
     });
@@ -279,10 +279,10 @@ export class Tensor {
     }
 
     const size = inferredShape.reduce((a, b) => a * b, 1) * 4;
-    const id = dispatcherInstance!.nextTensorId();
+    const id = dispatcher!.nextTensorId();
 
-    dispatcherInstance!.allocate(id, size);
-    dispatcherInstance!.write(id, typedData);
+    dispatcher!.allocate(id, size);
+    dispatcher!.write(id, typedData);
 
     return new Tensor(id, inferredShape!, requiresGrad);
   }
@@ -293,8 +293,8 @@ export class Tensor {
    */
   static empty(shape: number[], requiresGrad: boolean = false): Tensor {
     const size = shape.reduce((a, b) => a * b, 1) * 4;
-    const id = dispatcherInstance!.nextTensorId();
-    dispatcherInstance!.allocate(id, size);
+    const id = dispatcher!.nextTensorId();
+    dispatcher!.allocate(id, size);
     return new Tensor(id, shape, requiresGrad);
   }
 
@@ -305,7 +305,7 @@ export class Tensor {
    */
   write(data: Float32Array | number[]) {
     const arr = data instanceof Float32Array ? data : new Float32Array(data);
-    dispatcherInstance!.write(this.id, arr);
+    dispatcher!.write(this.id, arr);
   }
 
   private static create(
@@ -315,10 +315,10 @@ export class Tensor {
     params: OpParams = {}
   ): Tensor {
     const size = shape.reduce((a, b) => a * b, 1) * 4; // 4 bytes per float
-    const id = dispatcherInstance!.nextTensorId();
+    const id = dispatcher!.nextTensorId();
 
-    dispatcherInstance!.allocate(id, size);
-    dispatcherInstance!.runOp(op, [], id, params);
+    dispatcher!.allocate(id, size);
+    dispatcher!.runOp(op, [], id, params);
 
     return new Tensor(id, shape, requiresGrad);
   }
@@ -380,11 +380,11 @@ export class Tensor {
     const n = b.shape[1];
     const outShape = [m, n];
 
-    const outId = dispatcherInstance!.nextTensorId();
+    const outId = dispatcher!.nextTensorId();
     const size = m * n * 4;
 
-    dispatcherInstance!.allocate(outId, size);
-    dispatcherInstance!.runOp("MATMUL", [a.id, b.id], outId, {
+    dispatcher!.allocate(outId, size);
+    dispatcher!.runOp("MATMUL", [a.id, b.id], outId, {
       m,
       n,
       k,
@@ -411,11 +411,11 @@ export class Tensor {
     const embeddingDim = this.shape[1];
     const outShape = [...indices.shape, embeddingDim];
 
-    const outId = dispatcherInstance!.nextTensorId();
+    const outId = dispatcher!.nextTensorId();
     const size = outShape.reduce((a, b) => a * b, 1) * 4;
 
-    dispatcherInstance!.allocate(outId, size);
-    dispatcherInstance!.runOp("EMBEDDING", [this.id, indices.id], outId, {
+    dispatcher!.allocate(outId, size);
+    dispatcher!.runOp("EMBEDDING", [this.id, indices.id], outId, {
       embeddingDim,
     });
 
@@ -439,8 +439,8 @@ export class Tensor {
     const outShape = [n, m];
 
     // Zero-copy: create a view with new ID but swap strides
-    const viewId = dispatcherInstance!.nextTensorId();
-    dispatcherInstance!.allocateView(viewId, this.id);
+    const viewId = dispatcher!.nextTensorId();
+    dispatcher!.allocateView(viewId, this.id);
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
     const out = new Tensor(viewId, outShape, shouldGrad, this.offset);
@@ -466,8 +466,8 @@ export class Tensor {
     }
 
     // Zero-copy: create a view with new ID but same memory offset
-    const viewId = dispatcherInstance!.nextTensorId();
-    dispatcherInstance!.allocateView(viewId, this.id);
+    const viewId = dispatcher!.nextTensorId();
+    dispatcher!.allocateView(viewId, this.id);
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
     const out = new Tensor(viewId, newShape, shouldGrad, this.offset);
@@ -485,8 +485,8 @@ export class Tensor {
     // If non-contiguous (e.g., transposed view), materialize first
     const tensor = this.materialize();
     return clone
-      ? dispatcherInstance!.read(tensor.id)
-      : dispatcherInstance!.readView(tensor.id);
+      ? dispatcher!.read(tensor.id)
+      : dispatcher!.readView(tensor.id);
   }
 
   async item(): Promise<number> {
@@ -554,9 +554,9 @@ export class Tensor {
         const [a] = v.prev;
         if (a.requiresGrad) {
           // RELU_BACKWARD: gradInput = (input > 0) ? gradOutput : 0
-          const outId = dispatcherInstance!.nextTensorId();
-          dispatcherInstance!.allocate(outId, a.numElements() * 4);
-          dispatcherInstance!.runOp("RELU_BACKWARD", [a.id, v.grad.id], outId, {
+          const outId = dispatcher!.nextTensorId();
+          dispatcher!.allocate(outId, a.numElements() * 4);
+          dispatcher!.runOp("RELU_BACKWARD", [a.id, v.grad.id], outId, {
             shape: a.shape,
             strides: a.strides,
           });
@@ -570,11 +570,11 @@ export class Tensor {
         const [a] = v.prev;
         if (a.requiresGrad) {
           // Use a dedicated TANH_BACKWARD kernel to compute gradInput = gradOutput * (1 - output^2)
-          const gradId = dispatcherInstance!.nextTensorId();
+          const gradId = dispatcher!.nextTensorId();
           const size = a.numElements() * 4;
-          dispatcherInstance!.allocate(gradId, size);
+          dispatcher!.allocate(gradId, size);
           // inputs: [output (tanh(a)), gradOutput]
-          dispatcherInstance!.runOp("TANH_BACKWARD", [v.id, v.grad.id], gradId);
+          dispatcher!.runOp("TANH_BACKWARD", [v.id, v.grad.id], gradId);
           const gradTensor = new Tensor(gradId, a.shape, false);
           a.addGrad(gradTensor);
         }
@@ -585,12 +585,12 @@ export class Tensor {
         const [a] = v.prev;
         if (a.requiresGrad) {
           // Use dedicated SOFTMAX_BACKWARD kernel which expects [output, gradOutput]
-          const gradId = dispatcherInstance!.nextTensorId();
+          const gradId = dispatcher!.nextTensorId();
           const size = a.numElements() * 4;
-          dispatcherInstance!.allocate(gradId, size);
+          dispatcher!.allocate(gradId, size);
           const m = v.shape[0];
           const n = v.shape[1];
-          dispatcherInstance!.runOp(
+          dispatcher!.runOp(
             "SOFTMAX_BACKWARD",
             [v.id, v.grad.id],
             gradId,
@@ -606,12 +606,12 @@ export class Tensor {
       } else if (v.op === "EMBEDDING") {
         const [weights, indices] = v.prev;
         if (weights.requiresGrad) {
-          const gradWeightsId = dispatcherInstance!.nextTensorId();
+          const gradWeightsId = dispatcher!.nextTensorId();
           const size = weights.numElements() * 4;
-          dispatcherInstance!.allocate(gradWeightsId, size);
-          dispatcherInstance!.runOp("FILL", [], gradWeightsId, { value: 0 });
+          dispatcher!.allocate(gradWeightsId, size);
+          dispatcher!.runOp("FILL", [], gradWeightsId, { value: 0 });
 
-          dispatcherInstance!.runOp(
+          dispatcher!.runOp(
             "EMBEDDING_BACKWARD",
             [indices.id, v.grad.id],
             gradWeightsId,
@@ -666,16 +666,16 @@ export class Tensor {
     if (g.numElements() === 1) {
       if (!this.grad) {
         const zeros = Tensor.zeros(this.shape);
-        const outId = dispatcherInstance!.nextTensorId();
+        const outId = dispatcher!.nextTensorId();
         const size = this.numElements() * 4;
-        dispatcherInstance!.allocate(outId, size);
-        dispatcherInstance!.runOp("ADD_SCALAR_TENSOR", [zeros.id, g.id], outId);
+        dispatcher!.allocate(outId, size);
+        dispatcher!.runOp("ADD_SCALAR_TENSOR", [zeros.id, g.id], outId);
         this.grad = new Tensor(outId, this.shape, false);
       } else {
-        const outId = dispatcherInstance!.nextTensorId();
+        const outId = dispatcher!.nextTensorId();
         const size = this.numElements() * 4;
-        dispatcherInstance!.allocate(outId, size);
-        dispatcherInstance!.runOp(
+        dispatcher!.allocate(outId, size);
+        dispatcher!.runOp(
           "ADD_SCALAR_TENSOR",
           [this.grad.id, g.id],
           outId
@@ -729,11 +729,11 @@ export class Tensor {
       // Materialize if non-contiguous
       const input = this.materialize();
 
-      const outId = dispatcherInstance!.nextTensorId();
+      const outId = dispatcher!.nextTensorId();
       const size = 4; // Scalar
 
-      dispatcherInstance!.allocate(outId, size);
-      dispatcherInstance!.runOp("SUM", [input.id], outId);
+      dispatcher!.allocate(outId, size);
+      dispatcher!.runOp("SUM", [input.id], outId);
 
       const shouldGrad = GradMode.enabled && this.requiresGrad;
       const out = new Tensor(outId, [1], shouldGrad);
@@ -760,11 +760,11 @@ export class Tensor {
       ? input.shape.map((s, i) => (i === axis ? 1 : s))
       : outShape;
 
-    const outId = dispatcherInstance!.nextTensorId();
+    const outId = dispatcher!.nextTensorId();
     const size = outShape.reduce((a, b) => a * b, 1) * 4;
 
-    dispatcherInstance!.allocate(outId, size);
-    dispatcherInstance!.runOp("SUM_AXIS", [input.id], outId, {
+    dispatcher!.allocate(outId, size);
+    dispatcher!.runOp("SUM_AXIS", [input.id], outId, {
       shape: input.shape,
       strides: input.strides,
       axis,
@@ -794,10 +794,10 @@ export class Tensor {
       const input = this.materialize();
       const m = input.shape[0];
       const n = input.shape[1];
-      const outId = dispatcherInstance!.nextTensorId();
+      const outId = dispatcher!.nextTensorId();
       const size = input.numElements() * 4;
-      dispatcherInstance!.allocate(outId, size);
-      dispatcherInstance!.runOp("SOFTMAX", [input.id], outId, { m, n });
+      dispatcher!.allocate(outId, size);
+      dispatcher!.runOp("SOFTMAX", [input.id], outId, { m, n });
 
       const shouldGrad = GradMode.enabled && this.requiresGrad;
       const out = new Tensor(outId, input.shape, shouldGrad);
@@ -838,7 +838,7 @@ export class Tensor {
   }
 
   zero_(): Tensor {
-    dispatcherInstance!.runOp("FILL", [], this.id, { value: 0 });
+    dispatcher!.runOp("FILL", [], this.id, { value: 0 });
     return this;
   }
 
@@ -863,7 +863,7 @@ export class Tensor {
       outShape
     );
 
-    dispatcherInstance!.runOp(op, [this.id, other.id], this.id, {
+    dispatcher!.runOp(op, [this.id, other.id], this.id, {
       shape: outShape,
       stridesA,
       stridesB,
@@ -885,11 +885,11 @@ export class Tensor {
       outShape
     );
 
-    const outId = dispatcherInstance!.nextTensorId();
+    const outId = dispatcher!.nextTensorId();
     const size = outShape.reduce((a, b) => a * b, 1) * 4;
 
-    dispatcherInstance!.allocate(outId, size);
-    dispatcherInstance!.runOp(op, [this.id, other.id], outId, {
+    dispatcher!.allocate(outId, size);
+    dispatcher!.runOp(op, [this.id, other.id], outId, {
       shape: outShape,
       stridesA,
       stridesB,
@@ -912,11 +912,11 @@ export class Tensor {
     // optional shape/strides params.
     const input = this;
 
-    const outId = dispatcherInstance!.nextTensorId();
+    const outId = dispatcher!.nextTensorId();
     const size = input.numElements() * 4;
 
-    dispatcherInstance!.allocate(outId, size);
-    dispatcherInstance!.runOp(op, [input.id], outId, {
+    dispatcher!.allocate(outId, size);
+    dispatcher!.runOp(op, [input.id], outId, {
       shape: input.shape,
       strides: input.strides,
     });

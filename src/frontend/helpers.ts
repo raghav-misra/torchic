@@ -1,3 +1,5 @@
+import { Tensor } from "./tensor";
+
 /**
  * Computes cross-entropy loss between logits and one-hot targets.
  * @param input Logits tensor [Batch, Classes]
@@ -35,7 +37,6 @@ export function crossEntropy(input: Tensor, target: Tensor): Tensor {
   // -sum(target * log(probs)) / N
   return targetsOneHot.mul(logProbs).neg().sum(-1).mean();
 }
-import { Tensor } from "./engine/tensor";
 
 /**
  * Creates a one-hot encoded tensor of given length, with 1 at index and 0 elsewhere.
