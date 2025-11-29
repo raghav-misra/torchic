@@ -127,6 +127,8 @@ async function makemoreMLP() {
   const blockSize = 5;
   const batchSize = 256;
   const hiddenSize = 300;
+  // early stopping threshold (stop when epoch avg loss <= threshold)
+  const earlyStopThreshold = 2.3;
 
   const estimatedMB = estimateMemoryMB(
     vocabSize,
@@ -258,6 +260,14 @@ async function makemoreMLP() {
     lrValue *= lrConfig.decayRate;
     learningRate.set([0], lrValue);
     console.log(`Decayed learning rate after epoch ${epoch + 1}: ${lrValue}`);
+      
+      // early stopping check
+      if (epochAvgLoss <= earlyStopThreshold) {
+        console.log(
+          `Early stopping: epochAvgLoss=${epochAvgLoss.toFixed(6)} <= ${earlyStopThreshold}`
+        );
+        break;
+      }
   }
 
   // --- Inference: generate 10 names starting from context "..." ---
