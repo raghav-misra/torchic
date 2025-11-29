@@ -50,17 +50,17 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>(
 
     if (type === "INIT_COORDINATOR") {
       role = "COORDINATOR";
-      const payload = (data as any).payload; // TS might struggle with the union discrimination here without a switch
+      const payload = data.payload; // TS might struggle with the union discrimination here without a switch
       buffer = payload.buffer;
       memoryAllocator = new MemoryAllocator(buffer!);
       // Acknowledge init
-      self.postMessage({ id: (data as any).id, data: { status: "ok" } });
+      self.postMessage({ id: data.id, data: { status: "ok" } });
       return;
     }
 
     if (type === "INIT_WORKER") {
       role = "COMPUTE";
-      const payload = (data as any).payload;
+      const payload = data.payload;
       buffer = payload.buffer;
 
       // The port comes in the transfer list
@@ -113,6 +113,9 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>(
             case "READ":
               handleRead(req.payload, req.id);
               break;
+              case "READ_VIEW":
+                handleReadView(req.payload, req.id);
+                break;
             case "READ_VALUE":
               handleReadValue(req.payload, req.id);
               break;
@@ -358,6 +361,18 @@ function handleRead(payload: { id: string }, reqId: string) {
     },
     [copy.buffer]
   );
+}
+
+function handleReadView(payload: { id: string }, reqId: string) {
+  const meta = tensorRegistry.get(payload.id);
+  if (!meta) {
+    // reply with error if missing
+    self.postMessage({ id: reqId, error: `Tensor ${payload.id} not found` });
+    return;
+  }
+
+  // Return offset/size metadata so the main thread can create a zero-copy view
+  self.postMessage({ id: reqId, data: { offset: meta.offset, size: meta.size } });
 }
 
 function handleReadValue(

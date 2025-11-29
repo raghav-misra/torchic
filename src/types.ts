@@ -13,6 +13,7 @@ export type CoordinatorRequest =
     | { type: 'WRITE', payload: { id: TensorId, data: Float32Array } }
     | { type: 'OP', id?: string, payload: { op: string, inputs: TensorId[], output: TensorId, params?: any } }
     | { type: 'READ', id: string, payload: { id: TensorId } }
+    | { type: 'READ_VIEW', id: string, payload: { id: TensorId } }
     | { type: 'READ_VALUE', id: string, payload: { id: TensorId, offset: number } };
 
 export type CoordinatorResponse = 

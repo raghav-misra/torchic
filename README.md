@@ -22,7 +22,7 @@ Literally uninstallable at the moment
 ## Quick Start
 
 ```javascript
-import { Tensor, noGrad, crossEntropy, trackTensors } from 'torchic';
+import { Tensor, noGrad, crossEntropy, trackTensors } from "torchic";
 
 // Initialize with 4 worker threads
 await Tensor.init(4);
@@ -40,8 +40,8 @@ const loss = y.sum();
 loss.backward();
 
 // Read results (async only when reading data)
-console.log('Loss:', await loss.item());
-console.log('Gradient:', await w.grad.toArray());
+console.log("Loss:", await loss.item());
+console.log("Gradient:", await w.grad.toArray());
 
 // Example: using trackTensors to auto-dispose temporaries
 await trackTensors(async () => {
@@ -67,10 +67,10 @@ for (let epoch = 0; epoch < 100; epoch++) {
   // Forward
   const y_pred = x.matmul(w).add(b);
   const loss = y_pred.sub(y_true).mul(y_pred.sub(y_true)).mean();
-  
+
   // Backward
   loss.backward();
-  
+
   // Update (disable autograd during parameter updates)
   await noGrad(async () => {
     if (w.grad) w.sub_(w.grad.mul(Tensor.fromData([lr], [1])));
@@ -79,14 +79,14 @@ for (let epoch = 0; epoch < 100; epoch++) {
     w.grad = null;
     b.grad = null;
   });
-  
+
   if (epoch % 10 === 0) {
     console.log(`Epoch ${epoch}: Loss = ${await loss.item()}`);
   }
 }
 
-console.log('Final w:', await w.item()); // ~2.0
-console.log('Final b:', await b.item()); // ~1.0
+console.log("Final w:", await w.item()); // ~2.0
+console.log("Final b:", await b.item()); // ~1.0
 ```
 
 ## API Reference
@@ -95,56 +95,64 @@ console.log('Final b:', await b.item()); // ~1.0
 
 ```javascript
 // From data
-Tensor.fromData([1, 2, 3, 4], [2, 2])
+Tensor.fromData([1, 2, 3, 4], [2, 2]);
 
 // Random initialization
-Tensor.randn([128, 64], requiresGrad = false)
+Tensor.randn([128, 64], (requiresGrad = false));
 
 // Zeros
-Tensor.zeros([10, 10], requiresGrad = false)
+Tensor.zeros([10, 10], (requiresGrad = false));
 ```
 
 ### Operations
 
 **Math Operations** (all return new Tensors):
+
 - `.add(other)` - Element-wise addition
-- `.sub(other)` - Element-wise subtraction  
+- `.sub(other)` - Element-wise subtraction
 - `.mul(other)` - Element-wise multiplication
 - `.div(other)` - Element-wise division
 - `.matmul(other)` - Matrix multiplication
 - `.neg()` - Negation
 
 **Slicing and Indexing**:
+
 - `.slice(ranges)` - N-dimensional slicing, returns a tensor view. Example: `tensor.slice([[0,2],[1,4]])`
 - `.set(indices, value)` - Set value at n-dimensional indices. Example: `tensor.set([i, j], value)`
 
 **Activations**:
+
 - `.relu()` - ReLU activation
 - `.exp()` - Exponential
 - `.log()` - Natural logarithm
 - `.softmax(axis)` - Softmax activation
 
 **Reductions**:
+
 - `.sum(axis?, keepDim?)` - Sum reduction
 - `.mean()` - Mean of all elements
 
 **Shape Operations** (zero-copy):
+
 - `.reshape(newShape)` - Reshape tensor
 - `.transpose()` - Transpose 2D tensor
 
 **Autograd**:
+
 - `.backward()` - Compute gradients via backpropagation
 - `noGrad(async () => {...})` - Disable gradient computation
 
 **Data Access** (async):
- - `await tensor.item()` - Read scalar value (first/only element)
- - `await tensor.toArray()` - Read as Float32Array
- - `tensor.slice(ranges)` - Get a view of a region (see above)
- - `tensor.set(indices, value)` - Set value at indices (see above)
+
+- `await tensor.item()` - Read scalar value (first/only element)
+- `await tensor.toArray()` - Read as Float32Array
+- `tensor.slice(ranges)` - Get a view of a region (see above)
+- `tensor.set(indices, value)` - Set value at indices (see above)
 
 ### In-Place Operations
 
 Operations ending with `_` modify the tensor in place:
+
 - `.add_(other)`, `.sub_(other)`, `.mul_(other)`, `.div_(other)`
 
 **Warning**: In-place operations should only be used inside `noGrad()` blocks to avoid breaking the computation graph, when autograd is enabled.
@@ -153,17 +161,17 @@ Operations ending with `_` modify the tensor in place:
 
 ```javascript
 // Cross-entropy loss (direct export)
-import { crossEntropy } from 'torchic';
+import { crossEntropy } from "torchic";
 const loss = crossEntropy(logits, target);
 
 // Track and auto-dispose temporary tensors (direct export)
-import { trackTensors } from 'torchic';
+import { trackTensors } from "torchic";
 await trackTensors(async () => {
   // ... create temporary tensors ...
 });
 
 // Initialize worker pool
-await Tensor.init(numThreads = 4)
+await Tensor.init((numThreads = 4));
 ```
 
 ## Architecture
@@ -171,11 +179,13 @@ await Tensor.init(numThreads = 4)
 torchic uses a **Frontend/Backend** architecture:
 
 **Frontend (Main Thread)**:
+
 - `Tensor` class: Lightweight metadata wrapper (shape, strides, ID)
 - Autograd engine: Builds computation graph (DAG)
 - Dispatcher: Serializes operations to backend
 
 **Backend (Web Workers)**:
+
 - Coordinator worker: Manages memory and task distribution
 - Compute workers: Execute parallel math operations
 - Memory allocator: Manages SharedArrayBuffer heap (malloc/free)
@@ -184,6 +194,7 @@ torchic uses a **Frontend/Backend** architecture:
 ### Zero-Copy Memory Sharing
 
 All tensors live in a single `SharedArrayBuffer` (default 256MB). Workers access data by offset, enabling:
+
 - **Zero data transfer**: No copying between threads
 - **View operations**: Reshape/transpose just modify strides
 - **Parallel execution**: Multiple workers compute on same buffer
@@ -210,6 +221,40 @@ Just for fun, to teach myself how to work with shared-memory parallelism in JS, 
 - **Limitations**: Not a replacement for GPU-accelerated libraries
 - **Browser support**: Requires SharedArrayBuffer (COOP/COEP headers)
 
+### `matmul` Performance Results
+
+The table captures timings for executing parallelized matrix multiplication across various thread counts and matrix dimensions.
+
+| Thread Count |     |      Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
+| -----------: | :-: | --------------------------: | ----------: | ------ |
+|            1 |     | $128 \times 128 \times 128$ |       5.915 | 0.709  |
+|              |     | $256 \times 128 \times 128$ |      11.125 | 0.754  |
+|              |     | $256 \times 256 \times 256$ |      44.685 | 0.751  |
+|              |     | $512 \times 512 \times 512$ |     538.380 | 0.499  |
+|            2 |     | $128 \times 128 \times 128$ |       3.020 | 1.389  |
+|              |     | $256 \times 128 \times 128$ |       6.040 | 1.389  |
+|              |     | $256 \times 256 \times 256$ |      24.450 | 1.372  |
+|              |     | $512 \times 512 \times 512$ |     255.690 | 1.050  |
+|            4 |     | $128 \times 128 \times 128$ |       1.675 | 2.504  |
+|              |     | $256 \times 128 \times 128$ |       3.070 | 2.732  |
+|              |     | $256 \times 256 \times 256$ |      15.285 | 2.195  |
+|              |     | $512 \times 512 \times 512$ |     144.110 | 1.863  |
+|            8 |     | $128 \times 128 \times 128$ |       1.635 | 2.565  |
+|              |     | $256 \times 128 \times 128$ |       2.985 | 2.810  |
+|              |     | $256 \times 256 \times 256$ |      12.210 | 2.748  |
+|              |     | $512 \times 512 \times 512$ |     110.615 | 2.427  |
+
+### Test machine / environment
+
+| Field                            | Value                                                |
+| -------------------------------- | ---------------------------------------------------- |
+| CPU model                        | Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz (2.59 GHz) |
+| Physical cores / Logical threads | 6 core / 12 logical processors                       |
+| Base / boost frequency           | 2.60 GHz (base) / 5.00 GHz (boost)                   |
+| RAM                              | 16.0 GB (15.8 GB usable)                             |
+| OS                               | Windows 11 Version 25H2 (Build 26200.7171)           |
+| Browser (name + version)         | Microsoft Edge 142.0.3595.94                         |
+
 ## Project Structure
 
 ```
@@ -235,6 +280,7 @@ torchic/
 ## Examples in Test Suite
 
 The `tests/test.ts` file contains examples for:
+
 - Basic operations and broadcasting
 - Autograd and gradient checking
 - Matrix multiplication with gradients
@@ -246,6 +292,7 @@ The `tests/test.ts` file contains examples for:
 - Zero-copy reshape and transpose
 
 Run the test page:
+
 ```bash
 npm run dev
 # Open browser to localhost:5173/tests/

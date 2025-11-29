@@ -123,7 +123,13 @@ export class Tensor {
 
     // Create Tensor with the correct (JS-side) offset for convenience
     const newOffset = this.offset + relativeOffsetBytes;
-    return new Tensor(viewId, newShape, this.requiresGrad, newOffset, this.strides);
+    return new Tensor(
+      viewId,
+      newShape,
+      this.requiresGrad,
+      newOffset,
+      this.strides
+    );
   }
 
   /**
@@ -206,6 +212,15 @@ export class Tensor {
   static async init(threads: number = 4, memoryMB: number = 256) {
     // We don't pass a path here, letting Dispatcher use its default relative path to worker.ts
     await Dispatcher.instance.init(undefined, threads, memoryMB);
+  }
+
+  static shutdown() {
+    try {
+      Dispatcher.instance.shutdown();
+    } catch (e) {
+      // best-effort
+      console.warn("Tensor.shutdown error:", e);
+    }
   }
 
   static zeros(shape: number[], requiresGrad: boolean = false): Tensor {
@@ -480,10 +495,12 @@ export class Tensor {
 
   // --- Data Access ---
 
-  async toArray(): Promise<Float32Array> {
+  toArray(clone: boolean = true): Promise<Float32Array> {
     // If non-contiguous (e.g., transposed view), materialize first
     const tensor = this.materialize();
-    return await Dispatcher.instance.read(tensor.id);
+    return clone
+      ? Dispatcher.instance.read(tensor.id)
+      : Dispatcher.instance.readView(tensor.id);
   }
 
   async item(): Promise<number> {
@@ -587,7 +604,12 @@ export class Tensor {
           Dispatcher.instance.allocate(gradId, size);
           const m = v.shape[0];
           const n = v.shape[1];
-          Dispatcher.instance.runOp("SOFTMAX_BACKWARD", [v.id, v.grad.id], gradId, { m, n });
+          Dispatcher.instance.runOp(
+            "SOFTMAX_BACKWARD",
+            [v.id, v.grad.id],
+            gradId,
+            { m, n }
+          );
           const gradTensor = new Tensor(gradId, a.shape, false);
           a.addGrad(gradTensor);
         }

@@ -18,9 +18,49 @@
       "
     >
       <h1>Torchic Test Suite</h1>
-      <div id="test-container"></div>
+      <p>
+        <button id="bench-1">Run dispatch bench (threads=1)</button>
+        &nbsp;|&nbsp;
+        <button id="bench-2">Run dispatch bench (threads=2)</button>
+        &nbsp;|&nbsp;
+        <button id="bench-4">Run dispatch bench (threads=4)</button>
+        &nbsp;|&nbsp;
+        <button id="bench-8">Run dispatch bench (threads=8)</button>
+        &nbsp;|&nbsp;
+      </p>
+      <div
+        id="bench-log"
+        style="
+          white-space: pre-wrap;
+          font-family: monospace;
+          margin-top: 12px;
+          max-height: 400px;
+          overflow: auto;
+          background: #f7f7f7;
+          padding: 8px;
+          border-radius: 6px;
+        "
+      ></div>
+      <script type="module">
+        function log(msg) {
+          console.log(msg);
+          document.getElementById("bench-log").textContent += msg + "\n";
+        }
+
+        [1, 2, 4, 6].forEach((threadCount) =>
+          document
+            .getElementById(`bench-${threadCount}`)
+            .addEventListener("click", async () => {
+              log(`Starting dispatch bench with ${threadCount} threads...`);
+              const mod = await import("./bench/dispatch-bench.ts");
+              await mod.runBench(threadCount, log);
+              log("Done.");
+            })
+        );
+      </script>
+      <!-- <div id="test-container"></div> -->
     </div>
     <!-- <script type="module" src="./test.ts"></script> -->
-    <script type="module" src="./makemore.ts"></script>
+    <!-- <script type="module" src="./makemore.ts"></script> -->
   </body>
 </html>

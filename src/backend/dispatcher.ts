@@ -2,6 +2,7 @@ import { TypedWorker, CoordinatorRequest, CoordinatorResponse, ComputeRequest } 
 
 export class Dispatcher {
     private coordinator: TypedWorker<CoordinatorRequest, CoordinatorResponse> | null = null;
+    private sab: SharedArrayBuffer | null = null;
     private computeWorkers: Worker[] = []; // We don't talk to these directly much
     private callbacks: Map<string, (data: any) => void> = new Map();
     private tensorIdCounter: number = 0;
@@ -23,6 +24,7 @@ export class Dispatcher {
 
         // Create SharedArrayBuffer
         const sab = new SharedArrayBuffer(1024 * 1024 * memorySizeMB);
+        this.sab = sab;
 
         // 1. Spawn Coordinator
         // Vite handles this correctly if we point to the TS file
@@ -76,6 +78,33 @@ export class Dispatcher {
                 }
             });
         });
+    }
+
+    // Shutdown coordinator and compute workers, allowing re-initialization.
+    shutdown(): void {
+        try {
+            if (this.coordinator) {
+                this.coordinator.terminate();
+                this.coordinator = null as any;
+            }
+        } catch (e) {
+            console.warn('Error terminating coordinator:', e);
+        }
+
+        try {
+            for (const w of this.computeWorkers) {
+                try {
+                    w.terminate();
+                } catch (e) {
+                    console.warn('Error terminating compute worker:', e);
+                }
+            }
+        } finally {
+            this.computeWorkers = [];
+        }
+
+        this.callbacks.clear();
+        this.tensorIdCounter = 0;
     }
 
     private setupWorkerHandler(worker: TypedWorker<any, CoordinatorResponse>, name: string) {
@@ -158,6 +187,30 @@ export class Dispatcher {
 
             this.postToCoordinator({
                 type: 'READ',
+                id: reqId,
+                payload: { id: tensorId }
+            });
+        });
+    }
+
+    /**
+     * Return a zero-copy view over the SharedArrayBuffer for the given tensor id.
+     * This asks the coordinator for the tensor's offset/size and creates a Float32Array
+     * view on the main thread without copying the underlying data.
+     * Note: caller must ensure the tensor is not being concurrently written by workers.
+     */
+    readView(tensorId: string): Promise<Float32Array> {
+        if (!this.sab) throw new Error('Dispatcher not initialized with SharedArrayBuffer');
+        return new Promise((resolve) => {
+            const reqId = this.generateId();
+            this.callbacks.set(reqId, (data) => {
+                const { offset, size } = data;
+                const view = new Float32Array(this.sab!, offset, size / 4);
+                resolve(view);
+            });
+
+            this.postToCoordinator({
+                type: 'READ_VIEW',
                 id: reqId,
                 payload: { id: tensorId }
             });
