@@ -153,19 +153,38 @@ function handleAlloc(payload: { id: string; size: number }) {
   if (!memoryAllocator) return;
   try {
     const offset = memoryAllocator.allocate(payload.size);
-    tensorRegistry.set(payload.id, { offset, size: payload.size, isView: false });
+    tensorRegistry.set(payload.id, {
+      offset,
+      size: payload.size,
+      isView: false,
+    });
   } catch (e: any) {
     console.error("Allocation failed:", e.message);
   }
 }
 
-function handleAllocView(payload: { id: string; parentId: string }) {
-  // View tensors share the same memory as their parent
+function handleAllocView(payload: {
+  id: string;
+  parentId: string;
+  offset?: number;
+}) {
+  // View tensors share the same memory as their parent, optionally with an offset
   const parentMeta = tensorRegistry.get(payload.parentId);
   if (parentMeta) {
-    tensorRegistry.set(payload.id, { offset: parentMeta.offset, size: parentMeta.size, isView: true });
+    const providedOffset = payload.offset;
+    const offset =
+      typeof providedOffset === "number"
+        ? parentMeta.offset + providedOffset
+        : parentMeta.offset;
+    tensorRegistry.set(payload.id, {
+      offset,
+      size: parentMeta.size,
+      isView: true,
+    });
   } else {
-    console.error(`Cannot create view: parent tensor ${payload.parentId} not found`);
+    console.error(
+      `Cannot create view: parent tensor ${payload.parentId} not found`
+    );
   }
 }
 
@@ -215,83 +234,83 @@ async function handleOp(
   const numWorkers = computePorts.length;
 
   // Special Handling for SUM (Coordinator Logic)
-  if (payload.op === 'SUM') {
-      if (!memoryAllocator) return;
-      
-      // 1. Allocate Temp Buffer for Partial Sums
-      const tempSize = numWorkers * 4;
-      const tempOffset = memoryAllocator.allocate(tempSize);
-      
-      // 2. Dispatch SUM_PARTIAL
-      const taskId1 = Math.random().toString(36).substring(7);
-      const donePromise1 = new Promise<void>((resolve) => {
-          pendingTasks.set(taskId1, { resolve, count: numWorkers });
+  if (payload.op === "SUM") {
+    if (!memoryAllocator) return;
+
+    // 1. Allocate Temp Buffer for Partial Sums
+    const tempSize = numWorkers * 4;
+    const tempOffset = memoryAllocator.allocate(tempSize);
+
+    // 2. Dispatch SUM_PARTIAL
+    const taskId1 = Math.random().toString(36).substring(7);
+    const donePromise1 = new Promise<void>((resolve) => {
+      pendingTasks.set(taskId1, { resolve, count: numWorkers });
+    });
+
+    computePorts.forEach((port, index) => {
+      port.postMessage({
+        type: "EXECUTE_TASK",
+        taskId: taskId1,
+        op: "SUM_PARTIAL",
+        inputs: [{ offset: inputMetas[0]!.offset, size: inputMetas[0]!.size }],
+        output: { offset: tempOffset, size: tempSize }, // Workers write to specific index here
+        params: { outIndex: index },
+        workerIndex: index,
+        totalWorkers: numWorkers,
       });
+    });
 
-      computePorts.forEach((port, index) => {
-          port.postMessage({
-              type: "EXECUTE_TASK",
-              taskId: taskId1,
-              op: "SUM_PARTIAL",
-              inputs: [{ offset: inputMetas[0]!.offset, size: inputMetas[0]!.size }],
-              output: { offset: tempOffset, size: tempSize }, // Workers write to specific index here
-              params: { outIndex: index },
-              workerIndex: index,
-              totalWorkers: numWorkers,
-          });
-      });
+    await donePromise1;
 
-      await donePromise1;
+    // 3. Dispatch SUM_FINAL (Single Worker)
+    const taskId2 = Math.random().toString(36).substring(7);
+    const donePromise2 = new Promise<void>((resolve) => {
+      pendingTasks.set(taskId2, { resolve, count: 1 });
+    });
 
-      // 3. Dispatch SUM_FINAL (Single Worker)
-      const taskId2 = Math.random().toString(36).substring(7);
-      const donePromise2 = new Promise<void>((resolve) => {
-          pendingTasks.set(taskId2, { resolve, count: 1 });
-      });
+    computePorts[0].postMessage({
+      type: "EXECUTE_TASK",
+      taskId: taskId2,
+      op: "SUM_FINAL",
+      inputs: [{ offset: tempOffset, size: tempSize }],
+      output: { offset: outputMeta!.offset, size: outputMeta!.size },
+      params: { n: numWorkers },
+      workerIndex: 0,
+      totalWorkers: 1,
+    });
 
-      computePorts[0].postMessage({
-          type: "EXECUTE_TASK",
-          taskId: taskId2,
-          op: "SUM_FINAL",
-          inputs: [{ offset: tempOffset, size: tempSize }],
-          output: { offset: outputMeta!.offset, size: outputMeta!.size },
-          params: { n: numWorkers },
-          workerIndex: 0,
-          totalWorkers: 1,
-      });
+    await donePromise2;
 
-      await donePromise2;
+    // 4. Free Temp
+    memoryAllocator.free(tempOffset, tempSize);
 
-      // 4. Free Temp
-      memoryAllocator.free(tempOffset, tempSize);
-
-      if (reqId) {
-          self.postMessage({ id: reqId, data: { status: "done" } });
-      }
-      return;
+    if (reqId) {
+      self.postMessage({ id: reqId, data: { status: "done" } });
+    }
+    return;
   }
 
   // Special Handling for EMBEDDING_BACKWARD (Single Worker to avoid race conditions)
-  if (payload.op === 'EMBEDDING_BACKWARD') {
-      const taskId = Math.random().toString(36).substring(7);
-      const donePromise = new Promise<void>((resolve) => {
-          pendingTasks.set(taskId, { resolve, count: 1 });
-      });
+  if (payload.op === "EMBEDDING_BACKWARD") {
+    const taskId = Math.random().toString(36).substring(7);
+    const donePromise = new Promise<void>((resolve) => {
+      pendingTasks.set(taskId, { resolve, count: 1 });
+    });
 
-      computePorts[0].postMessage({
-          type: "EXECUTE_TASK",
-          taskId,
-          op: payload.op,
-          inputs: inputMetas.map((m) => ({ offset: m!.offset, size: m!.size })),
-          output: { offset: outputMeta!.offset, size: outputMeta!.size },
-          params: payload.params,
-          workerIndex: 0,
-          totalWorkers: 1,
-      });
+    computePorts[0].postMessage({
+      type: "EXECUTE_TASK",
+      taskId,
+      op: payload.op,
+      inputs: inputMetas.map((m) => ({ offset: m!.offset, size: m!.size })),
+      output: { offset: outputMeta!.offset, size: outputMeta!.size },
+      params: payload.params,
+      workerIndex: 0,
+      totalWorkers: 1,
+    });
 
-      await donePromise;
-      if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
-      return;
+    await donePromise;
+    if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+    return;
   }
 
   // 2. Split the work (Sharding Logic)
@@ -341,7 +360,10 @@ function handleRead(payload: { id: string }, reqId: string) {
   );
 }
 
-function handleReadValue(payload: { id: string; offset: number }, reqId: string) {
+function handleReadValue(
+  payload: { id: string; offset: number },
+  reqId: string
+) {
   const meta = tensorRegistry.get(payload.id);
   if (!meta || !buffer) return;
 
@@ -403,6 +425,42 @@ function executeKernel(
         n,
         k,
         startRow,
+        endRow,
+        params.stridesA,
+        params.stridesB
+      );
+    }
+    return;
+  }
+
+  // Special handling for SOFTMAX on 2D tensors (row-wise independent)
+  if (op === "SOFTMAX") {
+    const { m, n } = params;
+    const rowsPerWorker = Math.ceil(m / totalWorkers);
+    const startRow = workerIndex * rowsPerWorker;
+    const endRow = Math.min(startRow + rowsPerWorker, m);
+
+    if (startRow < m) {
+      elementwise.softmax2d(inputViews[0], outputView, m, n, startRow, endRow);
+    }
+    return;
+  }
+
+  if (op === "SOFTMAX_BACKWARD") {
+    const { m, n } = params;
+    const rowsPerWorker = Math.ceil(m / totalWorkers);
+    const startRow = workerIndex * rowsPerWorker;
+    const endRow = Math.min(startRow + rowsPerWorker, m);
+
+    if (startRow < m) {
+      // inputs: [output(softmax), gradOutput]
+      elementwise.softmax_backward2d(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        m,
+        n,
+        startRow,
         endRow
       );
     }
@@ -418,43 +476,42 @@ function executeKernel(
     const endRow = Math.min(startRow + rowsPerWorker, n);
 
     if (startRow < n) {
-      transpose.transpose(
-        inputViews[0],
-        outputView,
-        m,
-        n,
-        startRow,
-        endRow
-      );
+      transpose.transpose(inputViews[0], outputView, m, n, startRow, endRow);
     }
     return;
   }
 
   if (op === "SUM_PARTIAL") {
-      // Input: Large array
-      // Output: Small array (size = numWorkers)
-      // We write to output[params.outIndex]
-      // We sum input[start...end]
-      
-      // Re-calculate start/end for the INPUT array
-      const totalElements = inputViews[0].length;
-      const chunkSize = Math.ceil(totalElements / totalWorkers);
-      const start = workerIndex * chunkSize;
-      const end = Math.min(start + chunkSize, totalElements);
+    // Input: Large array
+    // Output: Small array (size = numWorkers)
+    // We write to output[params.outIndex]
+    // We sum input[start...end]
 
-      if (start < totalElements) {
-          reductions.sum_partial(inputViews[0], outputView, params.outIndex, start, end);
-      } else {
-          outputView[params.outIndex] = 0;
-      }
-      return;
+    // Re-calculate start/end for the INPUT array
+    const totalElements = inputViews[0].length;
+    const chunkSize = Math.ceil(totalElements / totalWorkers);
+    const start = workerIndex * chunkSize;
+    const end = Math.min(start + chunkSize, totalElements);
+
+    if (start < totalElements) {
+      reductions.sum_partial(
+        inputViews[0],
+        outputView,
+        params.outIndex,
+        start,
+        end
+      );
+    } else {
+      outputView[params.outIndex] = 0;
+    }
+    return;
   }
 
   if (op === "SUM_FINAL") {
-      // Input: Small array (partial sums)
-      // Output: Scalar (size 1)
-      reductions.sum_final(inputViews[0], outputView, params.n);
-      return;
+    // Input: Small array (partial sums)
+    // Output: Scalar (size 1)
+    reductions.sum_final(inputViews[0], outputView, params.n);
+    return;
   }
 
   // Default: Element-wise (Flat sharding)
@@ -467,28 +524,114 @@ function executeKernel(
 
   switch (op) {
     case "ADD":
-      elementwise.add(inputViews[0], inputViews[1], outputView, start, end, params.shape, params.stridesA, params.stridesB);
+      elementwise.add(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.stridesA,
+        params.stridesB
+      );
       break;
     case "SUB":
-      elementwise.sub(inputViews[0], inputViews[1], outputView, start, end, params.shape, params.stridesA, params.stridesB);
+      elementwise.sub(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.stridesA,
+        params.stridesB
+      );
       break;
     case "MUL":
-      elementwise.mul(inputViews[0], inputViews[1], outputView, start, end, params.shape, params.stridesA, params.stridesB);
+      elementwise.mul(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.stridesA,
+        params.stridesB
+      );
       break;
     case "DIV":
-      elementwise.div(inputViews[0], inputViews[1], outputView, start, end, params.shape, params.stridesA, params.stridesB);
+      elementwise.div(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.stridesA,
+        params.stridesB
+      );
       break;
     case "RELU":
-      elementwise.relu(inputViews[0], outputView, start, end);
+      elementwise.relu(
+        inputViews[0],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.strides
+      );
       break;
     case "RELU_BACKWARD":
-      elementwise.relu_backward(inputViews[0], inputViews[1], outputView, start, end);
+      elementwise.relu_backward(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.strides
+      );
       break;
     case "EXP":
-      elementwise.exp(inputViews[0], outputView, start, end);
+      elementwise.exp(
+        inputViews[0],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.strides
+      );
+      break;
+    case "TANH":
+      elementwise.tanh(
+        inputViews[0],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.strides
+      );
+      break;
+    case "TANH_BACKWARD":
+      // inputs: [output (tanh(x)), gradOutput]
+      // outputView is gradInput
+      elementwise.tanh_backward(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        start,
+        end
+      );
       break;
     case "LOG":
-      elementwise.log(inputViews[0], outputView, start, end);
+      elementwise.log(
+        inputViews[0],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.strides
+      );
       break;
     case "FILL":
       elementwise.fill(outputView, params.value, start, end);
@@ -497,22 +640,57 @@ function executeKernel(
       elementwise.randn(outputView, start, end);
       break;
     case "SUM_AXIS":
-      reductions.sum_axis(inputViews[0], outputView, start, end, params.shape, params.strides, params.axis);
+      reductions.sum_axis(
+        inputViews[0],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.strides,
+        params.axis
+      );
       break;
     case "ADD_SCALAR_TENSOR":
-      reductions.add_scalar_tensor(inputViews[0], inputViews[1], outputView, start, end);
+      reductions.add_scalar_tensor(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        start,
+        end
+      );
       break;
     case "COPY":
       elementwise.copy(inputViews[0], outputView, start, end);
       break;
     case "MATERIALIZE":
-      elementwise.materialize(inputViews[0], outputView, start, end, params.shape, params.strides);
+      elementwise.materialize(
+        inputViews[0],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.strides
+      );
       break;
     case "EMBEDDING":
-      embedding.embedding(inputViews[0], inputViews[1], outputView, params.embeddingDim, start, end);
+      embedding.embedding(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        params.embeddingDim,
+        start,
+        end
+      );
       break;
     case "EMBEDDING_BACKWARD":
-      embedding.embedding_backward(outputView, inputViews[0], inputViews[1], params.embeddingDim, start, end);
+      embedding.embedding_backward(
+        outputView,
+        inputViews[0],
+        inputViews[1],
+        params.embeddingDim,
+        start,
+        end
+      );
       break;
     default:
       console.error(`Unknown op: ${op}`);

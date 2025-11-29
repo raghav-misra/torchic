@@ -68,21 +68,64 @@ export function div(a: Float32Array, b: Float32Array, out: Float32Array, start: 
 }
 
 // Unary ops
-export function relu(a: Float32Array, out: Float32Array, start: number, end: number) {
-    for (let i = start; i < end; i++) {
-        out[i] = Math.max(0, a[i]);
+export function relu(a: Float32Array, out: Float32Array, start: number, end: number, shape?: number[], strides?: number[]) {
+    if (shape && strides) {
+        // strided access: map flat output index -> input offset
+        for (let i = start; i < end; i++) {
+            let idx = i;
+            let inputOffset = 0;
+            for (let dim = shape.length - 1; dim >= 0; dim--) {
+                const size = shape[dim];
+                const pos = idx % size;
+                idx = Math.floor(idx / size);
+                inputOffset += pos * strides[dim];
+            }
+            out[i] = Math.max(0, a[inputOffset]);
+        }
+    } else {
+        for (let i = start; i < end; i++) {
+            out[i] = Math.max(0, a[i]);
+        }
     }
 }
 
-export function exp(a: Float32Array, out: Float32Array, start: number, end: number) {
-    for (let i = start; i < end; i++) {
-        out[i] = Math.exp(a[i]);
+export function exp(a: Float32Array, out: Float32Array, start: number, end: number, shape?: number[], strides?: number[]) {
+    if (shape && strides) {
+        for (let i = start; i < end; i++) {
+            let idx = i;
+            let inputOffset = 0;
+            for (let dim = shape.length - 1; dim >= 0; dim--) {
+                const size = shape[dim];
+                const pos = idx % size;
+                idx = Math.floor(idx / size);
+                inputOffset += pos * strides[dim];
+            }
+            out[i] = Math.exp(a[inputOffset]);
+        }
+    } else {
+        for (let i = start; i < end; i++) {
+            out[i] = Math.exp(a[i]);
+        }
     }
 }
 
-export function log(a: Float32Array, out: Float32Array, start: number, end: number) {
-    for (let i = start; i < end; i++) {
-        out[i] = Math.log(a[i]);
+export function log(a: Float32Array, out: Float32Array, start: number, end: number, shape?: number[], strides?: number[]) {
+    if (shape && strides) {
+        for (let i = start; i < end; i++) {
+            let idx = i;
+            let inputOffset = 0;
+            for (let dim = shape.length - 1; dim >= 0; dim--) {
+                const size = shape[dim];
+                const pos = idx % size;
+                idx = Math.floor(idx / size);
+                inputOffset += pos * strides[dim];
+            }
+            out[i] = Math.log(a[inputOffset]);
+        }
+    } else {
+        for (let i = start; i < end; i++) {
+            out[i] = Math.log(a[i]);
+        }
     }
 }
 
@@ -121,8 +164,89 @@ export function materialize(input: Float32Array, out: Float32Array, start: numbe
     }
 }
 
-export function relu_backward(input: Float32Array, gradOutput: Float32Array, gradInput: Float32Array, start: number, end: number) {
+export function relu_backward(input: Float32Array, gradOutput: Float32Array, gradInput: Float32Array, start: number, end: number, shape?: number[], strides?: number[]) {
+    if (shape && strides) {
+        for (let i = start; i < end; i++) {
+            let idx = i;
+            let inputOffset = 0;
+            for (let dim = shape.length - 1; dim >= 0; dim--) {
+                const size = shape[dim];
+                const pos = idx % size;
+                idx = Math.floor(idx / size);
+                inputOffset += pos * strides[dim];
+            }
+            gradInput[i] = input[inputOffset] > 0 ? gradOutput[i] : 0;
+        }
+    } else {
+        for (let i = start; i < end; i++) {
+            gradInput[i] = input[i] > 0 ? gradOutput[i] : 0;
+        }
+    }
+}
+
+export function tanh(a: Float32Array, out: Float32Array, start: number, end: number, shape?: number[], strides?: number[]) {
+    if (shape && strides) {
+        for (let i = start; i < end; i++) {
+            let idx = i;
+            let inputOffset = 0;
+            for (let dim = shape.length - 1; dim >= 0; dim--) {
+                const size = shape[dim];
+                const pos = idx % size;
+                idx = Math.floor(idx / size);
+                inputOffset += pos * strides[dim];
+            }
+            out[i] = Math.tanh(a[inputOffset]);
+        }
+    } else {
+        for (let i = start; i < end; i++) {
+            out[i] = Math.tanh(a[i]);
+        }
+    }
+}
+
+export function tanh_backward(output: Float32Array, gradOutput: Float32Array, gradInput: Float32Array, start: number, end: number) {
+    // output is tanh(input); derivative = 1 - output^2
     for (let i = start; i < end; i++) {
-        gradInput[i] = input[i] > 0 ? gradOutput[i] : 0;
+        const o = output[i];
+        gradInput[i] = gradOutput[i] * (1 - o * o);
+    }
+}
+
+// Softmax optimized for 2D tensors on the last axis (rows are independent)
+export function softmax2d(input: Float32Array, out: Float32Array, m: number, n: number, startRow: number, endRow: number) {
+    for (let r = startRow; r < endRow; r++) {
+        const base = r * n;
+        let maxv = -Infinity;
+        for (let c = 0; c < n; c++) {
+            const v = input[base + c];
+            if (v > maxv) maxv = v;
+        }
+        let sum = 0.0;
+        for (let c = 0; c < n; c++) {
+            const e = Math.exp(input[base + c] - maxv);
+            out[base + c] = e;
+            sum += e;
+        }
+        // normalize
+        if (sum !== 0) {
+            const inv = 1.0 / sum;
+            for (let c = 0; c < n; c++) out[base + c] = out[base + c] * inv;
+        } else {
+            const v = 1.0 / n;
+            for (let c = 0; c < n; c++) out[base + c] = v;
+        }
+    }
+}
+
+export function softmax_backward2d(output: Float32Array, gradOutput: Float32Array, gradInput: Float32Array, m: number, n: number, startRow: number, endRow: number) {
+    for (let r = startRow; r < endRow; r++) {
+        const base = r * n;
+        let dot = 0.0;
+        for (let c = 0; c < n; c++) {
+            dot += gradOutput[base + c] * output[base + c];
+        }
+        for (let c = 0; c < n; c++) {
+            gradInput[base + c] = output[base + c] * (gradOutput[base + c] - dot);
+        }
     }
 }

@@ -4,24 +4,35 @@
 // B: K x N
 // C: M x N
 export function matmul(
-    a: Float32Array, 
-    b: Float32Array, 
-    out: Float32Array, 
-    m: number, 
-    n: number, 
+    a: Float32Array,
+    b: Float32Array,
+    out: Float32Array,
+    m: number,
+    n: number,
     k: number,
     startRow: number,
-    endRow: number
+    endRow: number,
+    stridesA?: number[],
+    stridesB?: number[]
 ) {
     // Naive implementation with row sharding
-    // TODO: Tiling/Blocking for cache efficiency
+    // Supports optional strides for A and B (to handle views without materialize)
+    const aRowStride = stridesA ? stridesA[0] : k;
+    const aColStride = stridesA ? stridesA[1] : 1;
+    const bRowStride = stridesB ? stridesB[0] : n;
+    const bColStride = stridesB ? stridesB[1] : 1;
+
     for (let i = startRow; i < endRow; i++) {
         for (let j = 0; j < n; j++) {
             let sum = 0;
+            const aRowBase = i * aRowStride;
+            const outBase = i * n + j;
             for (let p = 0; p < k; p++) {
-                sum += a[i * k + p] * b[p * n + j];
+                const aVal = a[aRowBase + p * aColStride];
+                const bVal = b[p * bRowStride + j * bColStride];
+                sum += aVal * bVal;
             }
-            out[i * n + j] = sum;
+            out[outBase] = sum;
         }
     }
 }

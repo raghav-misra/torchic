@@ -110,17 +110,20 @@ export class Tensor {
       }
       return end - start;
     });
-    const newOffset =
-      this.offset +
-      ranges.reduce((acc, [start], i) => acc + start * this.strides[i], 0);
-    // Strides remain the same
-    return new Tensor(
-      Dispatcher.instance.nextTensorId(),
-      newShape,
-      this.requiresGrad,
-      newOffset,
-      this.strides
+    // Compute relative start in elements (sum over dims start*stride)
+    const relativeStartElements = ranges.reduce(
+      (acc, [start], i) => acc + start * this.strides[i],
+      0
     );
+
+    // Request coordinator to create a view with the relative byte offset
+    const viewId = Dispatcher.instance.nextTensorId();
+    const relativeOffsetBytes = relativeStartElements * 4; // elements -> bytes
+    Dispatcher.instance.allocateView(viewId, this.id, relativeOffsetBytes);
+
+    // Create Tensor with the correct (JS-side) offset for convenience
+    const newOffset = this.offset + relativeOffsetBytes;
+    return new Tensor(viewId, newShape, this.requiresGrad, newOffset, this.strides);
   }
 
   /**
@@ -283,6 +286,27 @@ export class Tensor {
     return new Tensor(id, inferredShape!, requiresGrad);
   }
 
+  /**
+   * Allocate an uninitialized tensor buffer of the given shape.
+   * Useful for reusing the same backing memory across iterations.
+   */
+  static empty(shape: number[], requiresGrad: boolean = false): Tensor {
+    const size = shape.reduce((a, b) => a * b, 1) * 4;
+    const id = Dispatcher.instance.nextTensorId();
+    Dispatcher.instance.allocate(id, size);
+    return new Tensor(id, shape, requiresGrad);
+  }
+
+  /**
+   * Write data into this tensor's backing buffer. `data` should be a
+   * Float32Array (or array convertible to it); if shorter than the
+   * tensor's storage it will overwrite the prefix.
+   */
+  write(data: Float32Array | number[]) {
+    const arr = data instanceof Float32Array ? data : new Float32Array(data);
+    Dispatcher.instance.write(this.id, arr);
+  }
+
   private static create(
     shape: number[],
     requiresGrad: boolean,
@@ -328,6 +352,10 @@ export class Tensor {
     return this.runUnaryOp("LOG");
   }
 
+  tanh(): Tensor {
+    return this.runUnaryOp("TANH");
+  }
+
   // ...existing code...
 
   matmul(other: Tensor): Tensor {
@@ -342,9 +370,9 @@ export class Tensor {
       );
     }
 
-    // Materialize if needed (e.g., if this was transposed)
-    const a = this.materialize();
-    const b = other.materialize();
+    // Use strided-aware matmul kernel to avoid materializing views where possible.
+    const a = this;
+    const b = other;
 
     const m = a.shape[0];
     const k = a.shape[1];
@@ -359,6 +387,8 @@ export class Tensor {
       m,
       n,
       k,
+      stridesA: a.strides,
+      stridesB: b.strides,
     });
 
     const shouldGrad =
@@ -523,16 +553,44 @@ export class Tensor {
           // RELU_BACKWARD: gradInput = (input > 0) ? gradOutput : 0
           const outId = Dispatcher.instance.nextTensorId();
           Dispatcher.instance.allocate(outId, a.numElements() * 4);
-          Dispatcher.instance.runOp("RELU_BACKWARD", [a.id, v.grad.id], outId);
+          Dispatcher.instance.runOp("RELU_BACKWARD", [a.id, v.grad.id], outId, {
+            shape: a.shape,
+            strides: a.strides,
+          });
           const g = new Tensor(outId, a.shape, false);
           a.addGrad(g);
         }
       } else if (v.op === "EXP") {
         const [a] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.mul(v));
+      } else if (v.op === "TANH") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          // Use a dedicated TANH_BACKWARD kernel to compute gradInput = gradOutput * (1 - output^2)
+          const gradId = Dispatcher.instance.nextTensorId();
+          const size = a.numElements() * 4;
+          Dispatcher.instance.allocate(gradId, size);
+          // inputs: [output (tanh(a)), gradOutput]
+          Dispatcher.instance.runOp("TANH_BACKWARD", [v.id, v.grad.id], gradId);
+          const gradTensor = new Tensor(gradId, a.shape, false);
+          a.addGrad(gradTensor);
+        }
       } else if (v.op === "LOG") {
         const [a] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.div(a));
+      } else if (v.op === "SOFTMAX") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          // Use dedicated SOFTMAX_BACKWARD kernel which expects [output, gradOutput]
+          const gradId = Dispatcher.instance.nextTensorId();
+          const size = a.numElements() * 4;
+          Dispatcher.instance.allocate(gradId, size);
+          const m = v.shape[0];
+          const n = v.shape[1];
+          Dispatcher.instance.runOp("SOFTMAX_BACKWARD", [v.id, v.grad.id], gradId, { m, n });
+          const gradTensor = new Tensor(gradId, a.shape, false);
+          a.addGrad(gradTensor);
+        }
       } else if (v.op === "MATMUL") {
         const [a, b] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.matmul(b.transpose()));
@@ -722,6 +780,28 @@ export class Tensor {
   }
 
   softmax(axis: number = -1): Tensor {
+    // Fast path: 2D softmax over last axis (rows independent)
+    const axisResolved = axis < 0 ? this.shape.length + axis : axis;
+    if (this.shape.length === 2 && axisResolved === 1) {
+      const input = this.materialize();
+      const m = input.shape[0];
+      const n = input.shape[1];
+      const outId = Dispatcher.instance.nextTensorId();
+      const size = input.numElements() * 4;
+      Dispatcher.instance.allocate(outId, size);
+      Dispatcher.instance.runOp("SOFTMAX", [input.id], outId, { m, n });
+
+      const shouldGrad = GradMode.enabled && this.requiresGrad;
+      const out = new Tensor(outId, input.shape, shouldGrad);
+      if (shouldGrad) {
+        out.op = "SOFTMAX";
+        out.prev = [this];
+        out.params = { m, n };
+      }
+      return out;
+    }
+
+    // Fallback: compose from primitive ops (less efficient)
     const exp = this.exp();
     const sumExp = exp.sum(axis, true);
     return exp.div(sumExp);
@@ -819,14 +899,19 @@ export class Tensor {
   }
 
   private runUnaryOp(op: string): Tensor {
-    // Materialize if non-contiguous
-    const input = this.materialize();
+    // Avoid materialize where possible: pass shape/strides into the kernel so
+    // it can operate on non-contiguous views directly. Kernels should handle
+    // optional shape/strides params.
+    const input = this;
 
     const outId = Dispatcher.instance.nextTensorId();
     const size = input.numElements() * 4;
 
     Dispatcher.instance.allocate(outId, size);
-    Dispatcher.instance.runOp(op, [input.id], outId);
+    Dispatcher.instance.runOp(op, [input.id], outId, {
+      shape: input.shape,
+      strides: input.strides,
+    });
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
     const out = new Tensor(outId, input.shape, shouldGrad);

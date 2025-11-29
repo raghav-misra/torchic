@@ -114,10 +114,10 @@ export class Dispatcher {
         });
     }
 
-    allocateView(tensorId: string, parentId: string): void {
+    allocateView(tensorId: string, parentId: string, offsetBytes?: number): void {
         this.postToCoordinator({
             type: 'ALLOC_VIEW',
-            payload: { id: tensorId, parentId }
+            payload: { id: tensorId, parentId, offset: offsetBytes }
         });
     }
 

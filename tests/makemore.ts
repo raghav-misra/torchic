@@ -125,7 +125,7 @@ async function makemoreMLP() {
   const vocabSize = chars.length; // 26 letters + '.'
   const embeddingDims = 10;
   const blockSize = 5;
-  const batchSize = 256;
+  const batchSize = 512;
   const hiddenSize = 300;
   // early stopping threshold (stop when epoch avg loss <= threshold)
   const earlyStopThreshold = 2.3;
@@ -185,6 +185,12 @@ async function makemoreMLP() {
 
   let globalStep = 0;
 
+  // Preallocate reusable batch buffers to avoid per-batch allocations/copies
+  const Xbuf = Tensor.empty([batchSize, blockSize]);
+  const Ybuf = Tensor.empty([batchSize]);
+  const flatX = new Float32Array(batchSize * blockSize);
+  const flatY = new Float32Array(batchSize);
+
   for (let epoch = 0; epoch < numEpochs; epoch++) {
     shuffleInPlace(indices);
     let epochLossSum = 0;
@@ -193,8 +199,22 @@ async function makemoreMLP() {
     for (let pos = 0; pos < datasetSize; pos += batchSize) {
       // decay learning rate on schedule (based on globalStep)
       const batchIdx = indices.slice(pos, pos + batchSize);
-      const Xbatch = Tensor.fromData(batchIdx.map((i) => Xarray[i]));
-      const Ybatch = Tensor.fromData(batchIdx.map((i) => Yarray[i]));
+      const B = batchIdx.length;
+
+      // fill flat buffers (reuse to avoid allocations)
+      flatX.fill(0);
+      for (let i = 0; i < B; i++) {
+        const src = Xarray[batchIdx[i]];
+        for (let j = 0; j < blockSize; j++) flatX[i * blockSize + j] = src[j];
+      }
+      flatY.fill(0);
+      for (let i = 0; i < B; i++) flatY[i] = Yarray[batchIdx[i]];
+
+      Xbuf.write(flatX);
+      Ybuf.write(flatY);
+
+      const Xbatch = Xbuf.slice([[0, B], [0, blockSize]]);
+      const Ybatch = Ybuf.slice([[0, B]]);
 
       const t0 = performance.now();
 
@@ -205,7 +225,7 @@ async function makemoreMLP() {
         const B = emb.shape[0];
         const embFlat = emb.reshape([B, blockSize * embeddingDims]);
 
-        const hidden = embFlat.matmul(Whidden).add(bhidden).relu();
+        const hidden = embFlat.matmul(Whidden).add(bhidden).tanh();
         const logits = hidden.matmul(Wout).add(bout);
 
         const loss = crossEntropy(logits, Ybatch);
@@ -260,14 +280,16 @@ async function makemoreMLP() {
     lrValue *= lrConfig.decayRate;
     learningRate.set([0], lrValue);
     console.log(`Decayed learning rate after epoch ${epoch + 1}: ${lrValue}`);
-      
-      // early stopping check
-      if (epochAvgLoss <= earlyStopThreshold) {
-        console.log(
-          `Early stopping: epochAvgLoss=${epochAvgLoss.toFixed(6)} <= ${earlyStopThreshold}`
-        );
-        break;
-      }
+
+    // early stopping check
+    if (epochAvgLoss <= earlyStopThreshold) {
+      console.log(
+        `Early stopping: epochAvgLoss=${epochAvgLoss.toFixed(
+          6
+        )} <= ${earlyStopThreshold}`
+      );
+      break;
+    }
   }
 
   // --- Inference: generate 10 names starting from context "..." ---
