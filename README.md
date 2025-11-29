@@ -227,24 +227,28 @@ The table captures timings for executing parallelized matrix multiplication acro
 
 | Thread Count |     |      Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
 | -----------: | :-: | --------------------------: | ----------: | ------ |
-|            1 |     | $128 \times 128 \times 128$ |       5.915 | 0.709  |
-|              |     | $256 \times 128 \times 128$ |      11.125 | 0.754  |
-|              |     | $256 \times 256 \times 256$ |      44.685 | 0.751  |
-|              |     | $512 \times 512 \times 512$ |     538.380 | 0.499  |
-|            2 |     | $128 \times 128 \times 128$ |       3.020 | 1.389  |
-|              |     | $256 \times 128 \times 128$ |       6.040 | 1.389  |
-|              |     | $256 \times 256 \times 256$ |      24.450 | 1.372  |
-|              |     | $512 \times 512 \times 512$ |     255.690 | 1.050  |
-|            4 |     | $128 \times 128 \times 128$ |       1.675 | 2.504  |
-|              |     | $256 \times 128 \times 128$ |       3.070 | 2.732  |
-|              |     | $256 \times 256 \times 256$ |      15.285 | 2.195  |
-|              |     | $512 \times 512 \times 512$ |     144.110 | 1.863  |
-|            8 |     | $128 \times 128 \times 128$ |       1.635 | 2.565  |
-|              |     | $256 \times 128 \times 128$ |       2.985 | 2.810  |
-|              |     | $256 \times 256 \times 256$ |      12.210 | 2.748  |
-|              |     | $512 \times 512 \times 512$ |     110.615 | 2.427  |
+| Thread Count |     |      Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
+| -----------: | :-: | --------------------------: | ----------: | ------ |
+|            1 |     | $128 \times 128 \times 128$ |       3.470 | 1.209  |
+|              |     | $256 \times 128 \times 128$ |       6.805 | 1.233  |
+|              |     | $256 \times 256 \times 256$ |      26.975 | 1.244  |
+|              |     | $512 \times 512 \times 512$ |     222.045 | 1.209  |
+|            2 |     | $128 \times 128 \times 128$ |       1.990 | 2.108  |
+|              |     | $256 \times 128 \times 128$ |       3.880 | 2.162  |
+|              |     | $256 \times 256 \times 256$ |      14.715 | 2.280  |
+|              |     | $512 \times 512 \times 512$ |     129.665 | 2.070  |
+|            4 |     | $128 \times 128 \times 128$ |       1.660 | 2.527  |
+|              |     | $256 \times 128 \times 128$ |       2.290 | 3.663  |
+|              |     | $256 \times 256 \times 256$ |       8.930 | 3.757  |
+|              |     | $512 \times 512 \times 512$ |      87.080 | 3.083  |
+|            8 |     | $128 \times 128 \times 128$ |       1.505 | 2.787  |
+|              |     | $256 \times 128 \times 128$ |       2.335 | 3.593  |
+|              |     | $256 \times 256 \times 256$ |       8.835 | 3.798  |
+|              |     | $512 \times 512 \times 512$ |      73.570 | 3.649  |
+|              |     | $1024 \times 1024 \times 1024$ |    558.990 | 3.842  |
 
-The observed limited speedup from 4 → 8 threads is likely due to memory-bandwidth saturation, increased cache pressure when working sets exceed on-chip caches, and the use of logical (hyper) threads beyond available physical cores. Using a blocked (tiled) matrix-multiplication approach, where each thread works on cache-sized tiles and accumulates locally, would greatly improve data locality and scaling across more cores.
+
+The observed limited speedup from 4 → 8 threads is likely due to memory-bandwidth saturation, increased cache pressure when working sets exceed on-chip caches, and the use of logical (hyper) threads beyond available physical cores. The kernel now uses a blocked (tiled) matrix-multiplication approach, where each thread works on cache-sized tiles and accumulates locally, greatly improving data locality and scaling across more cores.
 
 The GFLOPs obviously don't compare to higher-end CPUs with optimized kernels, let alone GPUs. CPU kernels which tend to get 100+ GFLOPs essentially need to take advantage of SIMD instruction sets and do not incur the overhead of JavaScript (lol). So pre-optimized kernels in WASM are the necessary next step for non-trivial performance gains.
 
