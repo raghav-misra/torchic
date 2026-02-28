@@ -2,11 +2,11 @@ import { WorkerDispatcher } from "../backend/workers/dispatcher";
 
 export let dispatcher: WorkerDispatcher | null;
 
-type InitOptions = {
+interface InitOptions {
   backend: "workers";
   threadCount?: number;
   memorySizeMB?: number;
-};
+}
 
 export async function init(options: InitOptions) {
   if (options.backend === "workers") {

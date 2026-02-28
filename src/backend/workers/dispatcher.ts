@@ -6,19 +6,13 @@ import {
 } from "../../shared/types";
 
 export class WorkerDispatcher {
-  private coordinator: TypedWorker<
-    CoordinatorRequest,
-    CoordinatorResponse
-  > | null = null;
+  private coordinator: TypedWorker<CoordinatorRequest, CoordinatorResponse> | null = null;
   private sab: SharedArrayBuffer | null = null;
   private computeWorkers: Worker[] = []; // We don't talk to these directly much
-  private callbacks: Map<string, (data: any) => void> = new Map();
-  private tensorIdCounter: number = 0;
+  private callbacks = new Map<string, (data: any) => void>();
+  private tensorIdCounter = 0;
 
-  async init(
-    threadCount: number = 4,
-    memorySizeMB: number = 256
-  ): Promise<void> {
+  async init(threadCount = 4, memorySizeMB = 256): Promise<void> {
     if (this.coordinator) return; // Already initialized
 
     // Create SharedArrayBuffer
@@ -42,8 +36,7 @@ export class WorkerDispatcher {
 
       // We don't necessarily need to listen to compute workers in the main thread
       // unless we want to catch errors.
-      worker.onerror = (err) =>
-        console.error(`Compute-${i} System Error:`, err);
+      worker.onerror = (err) => console.error(`Compute-${i} System Error:`, err);
 
       // Create a direct channel between Coordinator and this Compute Worker
       const channel = new MessageChannel();
@@ -54,7 +47,7 @@ export class WorkerDispatcher {
           type: "ADD_WORKER",
           payload: { workerId: i },
         },
-        [channel.port1]
+        [channel.port1],
       ); // Transfer ownership
 
       // Send port2 to Compute Worker
@@ -114,10 +107,7 @@ export class WorkerDispatcher {
     this.tensorIdCounter = 0;
   }
 
-  private setupWorkerHandler(
-    worker: TypedWorker<any, CoordinatorResponse>,
-    name: string
-  ) {
+  private setupWorkerHandler(worker: TypedWorker<any, CoordinatorResponse>, name: string) {
     worker.onMessage((data) => {
       const { id, data: responseData, error } = data;
 
@@ -210,8 +200,7 @@ export class WorkerDispatcher {
    * Note: caller must ensure the tensor is not being concurrently written by workers.
    */
   readView(tensorId: string): Promise<Float32Array> {
-    if (!this.sab)
-      throw new Error("Dispatcher not initialized with SharedArrayBuffer");
+    if (!this.sab) throw new Error("Dispatcher not initialized with SharedArrayBuffer");
     return new Promise((resolve) => {
       const reqId = this.generateId();
       this.callbacks.set(reqId, (data) => {

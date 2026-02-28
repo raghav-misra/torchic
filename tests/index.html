@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -10,12 +10,7 @@
   </head>
   <body>
     <div
-      style="
-        font-family: system-ui, sans-serif;
-        max-width: 800px;
-        margin: 0 auto;
-        padding: 20px;
-      "
+      style="font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px"
     >
       <h1>Torchic Test Suite</h1>
       <p>
@@ -48,14 +43,12 @@
         }
 
         [1, 2, 4, 8].forEach((threadCount) =>
-          document
-            .getElementById(`bench-${threadCount}`)
-            .addEventListener("click", async () => {
-              log(`Starting dispatch bench with ${threadCount} threads...`);
-              const mod = await import("./bench/dispatch-bench.ts");
-              await mod.runBench(threadCount, log);
-              log("Done.");
-            })
+          document.getElementById(`bench-${threadCount}`).addEventListener("click", async () => {
+            log(`Starting dispatch bench with ${threadCount} threads...`);
+            const mod = await import("./bench/dispatch-bench.ts");
+            await mod.runBench(threadCount, log);
+            log("Done.");
+          }),
         );
       </script>
       <!-- <div id="test-container"></div> -->

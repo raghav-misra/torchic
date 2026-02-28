@@ -21,10 +21,7 @@ async function runTests() {
     const expected = [5, 7, 9];
     const match = res.every((val, i) => Math.abs(val - expected[i]) < 1e-5);
 
-    return [
-      match,
-      match ? `Got [${res}]` : `Expected [${expected}], got [${res}]`,
-    ];
+    return [match, match ? `Got [${res}]` : `Expected [${expected}], got [${res}]`];
   });
 
   await addTest("Matrix Multiplication", async (log) => {
@@ -107,8 +104,7 @@ async function runTests() {
     const cVal = await c.item();
     log(`C = A * B = ${cVal} (Expected: 11)`);
 
-    if (Math.abs(cVal - 11) > 1e-4)
-      return [false, `Forward failed. Expected 11, got ${cVal}`];
+    if (Math.abs(cVal - 11) > 1e-4) return [false, `Forward failed. Expected 11, got ${cVal}`];
 
     log("Computing gradients...");
     c.backward();
@@ -191,12 +187,9 @@ async function runTests() {
     const check = (arr: Float32Array, exp: number[]) =>
       arr.every((v, i) => Math.abs(v - exp[i]) < 1e-4);
 
-    if (!check(wGrad, wExpected))
-      return [false, `dW failed. Expected ${wExpected}, got ${wGrad}`];
-    if (!check(bGrad, bExpected))
-      return [false, `db failed. Expected ${bExpected}, got ${bGrad}`];
-    if (!check(xGrad, xExpected))
-      return [false, `dx failed. Expected ${xExpected}, got ${xGrad}`];
+    if (!check(wGrad, wExpected)) return [false, `dW failed. Expected ${wExpected}, got ${wGrad}`];
+    if (!check(bGrad, bExpected)) return [false, `db failed. Expected ${bExpected}, got ${bGrad}`];
+    if (!check(xGrad, xExpected)) return [false, `dx failed. Expected ${xExpected}, got ${xGrad}`];
 
     return [true, "MLP Layer Gradients correct"];
   });
@@ -214,10 +207,8 @@ async function runTests() {
     log(`Sum: ${sVal} (Expected: 10)`);
     log(`Mean: ${mVal} (Expected: 2.5)`);
 
-    if (Math.abs(sVal - 10) > 1e-4)
-      return [false, `Sum failed. Expected 10, got ${sVal}`];
-    if (Math.abs(mVal - 2.5) > 1e-4)
-      return [false, `Mean failed. Expected 2.5, got ${mVal}`];
+    if (Math.abs(sVal - 10) > 1e-4) return [false, `Sum failed. Expected 10, got ${sVal}`];
+    if (Math.abs(mVal - 2.5) > 1e-4) return [false, `Mean failed. Expected 2.5, got ${mVal}`];
 
     // Backward
     // d(mean)/da = 1/N = 0.25
@@ -230,10 +221,7 @@ async function runTests() {
     const expected = [0.25, 0.25, 0.25, 0.25];
 
     const match = grad.every((v) => Math.abs(v - 0.25) < 1e-4);
-    return [
-      match,
-      match ? "Passed" : `Grad failed. Expected ${expected}, got ${grad}`,
-    ];
+    return [match, match ? "Passed" : `Grad failed. Expected ${expected}, got ${grad}`];
   });
 
   await addTest("Broadcasting Gradient (Add)", async (log) => {
@@ -366,9 +354,7 @@ async function runTests() {
     const match = bData.every((val, i) => Math.abs(val - expected[i]) < 1e-5);
     return [
       match,
-      match
-        ? "Transpose correct (zero-copy view)"
-        : `Expected ${expected}, got ${bData}`,
+      match ? "Transpose correct (zero-copy view)" : `Expected ${expected}, got ${bData}`,
     ];
   });
 
@@ -425,11 +411,7 @@ async function runTests() {
     log(`Expected z: [${expectedZ}]`);
     const zMatch = zData.every((v, i) => Math.abs(v - expectedZ[i]) < 1e-5);
 
-    if (!zMatch)
-      return [
-        false,
-        `Linear layer failed. Expected ${expectedZ}, got ${zData}`,
-      ];
+    if (!zMatch) return [false, `Linear layer failed. Expected ${expectedZ}, got ${zData}`];
 
     // Softmax
     log("Applying softmax...");
@@ -474,11 +456,7 @@ async function runTests() {
     const w = Tensor.randn([1, 1], true);
     const b = Tensor.zeros([1], true);
 
-    log(
-      `Initial w: ${(await w.item()).toFixed(4)}, b: ${(await b.item()).toFixed(
-        4
-      )}`
-    );
+    log(`Initial w: ${(await w.item()).toFixed(4)}, b: ${(await b.item()).toFixed(4)}`);
 
     let learningRate = 0.01; // Start with higher LR
     const epochs = 2000;
@@ -518,7 +496,7 @@ async function runTests() {
       // Detect explosion: loss increased by more than 50%
       if (i > 1 && lossVal > prevLoss * 1.5) {
         log(`⚠️  Loss exploded at epoch ${i} (${prevLoss.toFixed(6)} → ${lossVal.toFixed(6)})`);
-        
+
         // Backtrack: restore previous weights
         if (prevW !== null && prevB !== null) {
           await noGrad(async () => {
@@ -530,21 +508,17 @@ async function runTests() {
           });
           log(`   Restored previous weights`);
         }
-        
+
         // Halve the learning rate
         learningRate /= 2;
         log(`   Reduced LR: ${(learningRate * 2).toFixed(6)} → ${learningRate.toFixed(6)}`);
-        
+
         // Skip this iteration
         continue;
       }
 
       if (lossVal < lossThreshold) {
-        log(
-          `✅ Converged at epoch ${i} (Loss = ${lossVal.toFixed(
-            6
-          )} < ${lossThreshold})`
-        );
+        log(`✅ Converged at epoch ${i} (Loss = ${lossVal.toFixed(6)} < ${lossThreshold})`);
         finalEpoch = i;
         converged = true;
         break;
@@ -564,9 +538,7 @@ async function runTests() {
         // Clip w gradient
         if (w.grad) {
           const wGradData = await w.grad.toArray();
-          const wGradNorm = Math.sqrt(
-            wGradData.reduce((sum, v) => sum + v * v, 0)
-          );
+          const wGradNorm = Math.sqrt(wGradData.reduce((sum, v) => sum + v * v, 0));
           if (wGradNorm > gradClip) {
             w.grad = w.grad.mul(Tensor.fromData([gradClip / wGradNorm], [1]));
           }
@@ -576,9 +548,7 @@ async function runTests() {
         // Clip b gradient
         if (b.grad) {
           const bGradData = await b.grad.toArray();
-          const bGradNorm = Math.sqrt(
-            bGradData.reduce((sum, v) => sum + v * v, 0)
-          );
+          const bGradNorm = Math.sqrt(bGradData.reduce((sum, v) => sum + v * v, 0));
           if (bGradNorm > gradClip) {
             b.grad = b.grad.mul(Tensor.fromData([gradClip / bGradNorm], [1]));
           }
@@ -722,7 +692,7 @@ async function runTests() {
       // Detect explosion: loss increased by more than 50%
       if (i > 1 && lossVal > prevLoss * 1.5) {
         log(`⚠️  Loss exploded at epoch ${i} (${prevLoss.toFixed(6)} → ${lossVal.toFixed(6)})`);
-        
+
         // Backtrack: restore previous weights
         if (prevW !== null && prevB !== null) {
           await noGrad(async () => {
@@ -734,21 +704,17 @@ async function runTests() {
           });
           log(`   Restored previous weights`);
         }
-        
+
         // Halve the learning rate
         learningRate /= 2;
         log(`   Reduced LR: ${(learningRate * 2).toFixed(6)} → ${learningRate.toFixed(6)}`);
-        
+
         // Skip this iteration
         continue;
       }
 
       if (lossVal < lossThreshold) {
-        log(
-          `✅ Converged at epoch ${i} (Loss = ${lossVal.toFixed(
-            6
-          )} < ${lossThreshold})`
-        );
+        log(`✅ Converged at epoch ${i} (Loss = ${lossVal.toFixed(6)} < ${lossThreshold})`);
         finalEpoch = i;
         converged = true;
         break;
@@ -767,9 +733,7 @@ async function runTests() {
         // Clip w gradient
         if (w.grad) {
           const wGradData = await w.grad.toArray();
-          const wGradNorm = Math.sqrt(
-            wGradData.reduce((sum, v) => sum + v * v, 0)
-          );
+          const wGradNorm = Math.sqrt(wGradData.reduce((sum, v) => sum + v * v, 0));
           if (wGradNorm > gradClip) {
             w.grad = w.grad.mul(Tensor.fromData([gradClip / wGradNorm], [1]));
           }
@@ -779,9 +743,7 @@ async function runTests() {
         // Clip b gradient
         if (b.grad) {
           const bGradData = await b.grad.toArray();
-          const bGradNorm = Math.sqrt(
-            bGradData.reduce((sum, v) => sum + v * v, 0)
-          );
+          const bGradNorm = Math.sqrt(bGradData.reduce((sum, v) => sum + v * v, 0));
           if (bGradNorm > gradClip) {
             b.grad = b.grad.mul(Tensor.fromData([gradClip / bGradNorm], [1]));
           }
@@ -799,7 +761,7 @@ async function runTests() {
     log(
       `Final W: [${Array.from(wFinal)
         .map((v) => v.toFixed(4))
-        .join(", ")}]`
+        .join(", ")}]`,
     );
     log(`Expected W: [${W_true.join(", ")}]`);
     log(`Final b: ${bFinal.toFixed(4)} (Expected ${b_true})`);
@@ -834,8 +796,8 @@ async function runTests() {
     const target = Tensor.fromData([0, 1, 0], [1, 3]);
 
     // Weights & Bias
-    let W = Tensor.randn([4, 3], true);
-    let b = Tensor.randn([1, 3], true);
+    const W = Tensor.randn([4, 3], true);
+    const b = Tensor.randn([1, 3], true);
 
     const lr = Tensor.fromData([0.5], [1]); // Learning Rate
 
@@ -854,11 +816,9 @@ async function runTests() {
       const probsVal = await probs.toArray();
 
       log(
-        `Step ${i}: Loss = ${lossVal.toFixed(6)} | Probs = [${Array.from(
-          probsVal
-        )
+        `Step ${i}: Loss = ${lossVal.toFixed(6)} | Probs = [${Array.from(probsVal)
           .map((p) => p.toFixed(3))
-          .join(", ")}]`
+          .join(", ")}]`,
       );
 
       // Backward

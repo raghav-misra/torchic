@@ -9,7 +9,11 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "bench:kernel": "npm run build && node dist/tests/bench/kernel-bench.js"
+    "bench:kernel": "npm run build && node dist/tests/bench/kernel-bench.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "keywords": [
     "neural-network",
@@ -21,7 +25,12 @@
   "license": "MIT",
   "type": "module",
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.0.2",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.1",
     "typescript": "^5.0.0",
+    "typescript-eslint": "^8.56.1",
     "vite": "^6.4.1",
     "vitest": "^1.0.0"
   }

@@ -1,7 +1,9 @@
-
 const container = document.getElementById("test-container");
 
-export async function addTest(name: string, fn: (log: (msg: string) => void) => Promise<[boolean, string]>) {
+export async function addTest(
+  name: string,
+  fn: (log: (msg: string) => void) => Promise<[boolean, string]>,
+) {
   if (!container) return;
 
   const details = document.createElement("details");
@@ -38,8 +40,8 @@ export async function addTest(name: string, fn: (log: (msg: string) => void) => 
   container.appendChild(details);
 
   const log = (msg: string) => {
-      logContainer.style.display = "block";
-      logContainer.textContent += msg + "\n";
+    logContainer.style.display = "block";
+    logContainer.textContent += msg + "\n";
   };
 
   try {
@@ -67,10 +69,7 @@ export async function addTest(name: string, fn: (log: (msg: string) => void) => 
   }
 }
 
-export async function addInfo(
-  name: string,
-  fn: (log: (msg: string) => void) => Promise<void>
-) {
+export async function addInfo(name: string, fn: (log: (msg: string) => void) => Promise<void>) {
   if (!container) return;
 
   const details = document.createElement("details");

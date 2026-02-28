@@ -2,8 +2,8 @@ import { Tensor, trackTensors, crossEntropy, noGrad } from "../src/index";
 
 // --- Helpers ---------------------------------------------------------------
 function buildVocab(chars: string) {
-  const stoi: { [key: string]: number } = {};
-  const itos: { [key: number]: string } = {};
+  const stoi: Record<string, number> = {};
+  const itos: Record<number, string> = {};
   for (let i = 0; i < chars.length; i++) {
     stoi[chars[i]] = i;
     itos[i] = chars[i];
@@ -11,11 +11,7 @@ function buildVocab(chars: string) {
   return { stoi, itos };
 }
 
-function buildDataset(
-  names: string[],
-  stoi: { [key: string]: number },
-  blockSize: number
-) {
+function buildDataset(names: string[], stoi: Record<string, number>, blockSize: number) {
   const Xarray: number[][] = [];
   const Yarray: number[] = [];
 
@@ -38,7 +34,7 @@ function estimateMemoryMB(
   embeddingDims: number,
   blockSize: number,
   batchSize: number,
-  hiddenSize: number
+  hiddenSize: number,
 ) {
   // loose peak floats: params+grads + batch temps (embeddings, hidden, logits/softmax)
   const params =
@@ -49,8 +45,7 @@ function estimateMemoryMB(
     vocabSize; // biases
 
   const peakFloats =
-    2 * params +
-    batchSize * (blockSize * embeddingDims + hiddenSize + 2 * vocabSize);
+    2 * params + batchSize * (blockSize * embeddingDims + hiddenSize + 2 * vocabSize);
   const estimatedMB = Math.ceil((peakFloats * 4) / (1024 * 1024)) + 8; // add slack
   return estimatedMB;
 }
@@ -59,16 +54,9 @@ function detectCores(): number {
   return navigator?.hardwareConcurrency ?? 4;
 }
 
-function chooseThreadCount(
-  rows: number,
-  minRowsPerThread = 8,
-  maxThreads = 8
-): number {
+function chooseThreadCount(rows: number, minRowsPerThread = 8, maxThreads = 8): number {
   const cores = detectCores();
-  const maxByWork = Math.max(
-    1,
-    Math.floor(rows / Math.max(1, minRowsPerThread))
-  );
+  const maxByWork = Math.max(1, Math.floor(rows / Math.max(1, minRowsPerThread)));
   return Math.min(cores, maxByWork, maxThreads);
 }
 
@@ -77,7 +65,7 @@ function createModel(
   embeddingDims: number,
   blockSize: number,
   hiddenSize: number,
-  initialLR: number
+  initialLR: number,
 ) {
   const Wembed = Tensor.randn([vocabSize, embeddingDims], true);
   const Whidden = Tensor.randn([blockSize * embeddingDims, hiddenSize], true);
@@ -99,7 +87,7 @@ function createModel(
 // helper to sample index from probs Float32Array
 function sampleFromProbArray(arr: Float32Array) {
   let sum = 0;
-  for (let i = 0; i < arr.length; i++) sum += arr[i];
+  for (const val of arr) sum += val;
   let r = Math.random() * sum;
   for (let i = 0; i < arr.length; i++) {
     r -= arr[i];
@@ -110,9 +98,7 @@ function sampleFromProbArray(arr: Float32Array) {
 
 // --- Main -----------------------------------------------------------------
 async function makemoreMLP() {
-  const names = await fetch(
-    "https://raw.githubusercontent.com/karpathy/makemore/master/names.txt"
-  )
+  const names = await fetch("https://raw.githubusercontent.com/karpathy/makemore/master/names.txt")
     .then((res) => res.text())
     .then((text) => text.split("\n").filter((n) => n.length > 0));
 
@@ -130,13 +116,7 @@ async function makemoreMLP() {
   // early stopping threshold (stop when epoch avg loss <= threshold)
   const earlyStopThreshold = 2.3;
 
-  const estimatedMB = estimateMemoryMB(
-    vocabSize,
-    embeddingDims,
-    blockSize,
-    batchSize,
-    hiddenSize
-  );
+  const estimatedMB = estimateMemoryMB(vocabSize, embeddingDims, blockSize, batchSize, hiddenSize);
   console.log(`Estimated memory (MB): ${estimatedMB}`);
 
   const threads = chooseThreadCount(Math.max(1, batchSize));
@@ -156,14 +136,13 @@ async function makemoreMLP() {
   const lrConfig = { initial: 0.1, decayRate: 0.95 };
   const numEpochs = 5; // run this many full passes over the dataset
 
-  const { Wembed, Whidden, bhidden, Wout, bout, parameters, learningRate } =
-    createModel(
-      vocabSize,
-      embeddingDims,
-      blockSize,
-      hiddenSize,
-      lrConfig.initial
-    );
+  const { Wembed, Whidden, bhidden, Wout, bout, parameters, learningRate } = createModel(
+    vocabSize,
+    embeddingDims,
+    blockSize,
+    hiddenSize,
+    lrConfig.initial,
+  );
 
   // JS-side current lr value (we update the scalar Tensor each schedule step)
   let lrValue = lrConfig.initial;
@@ -213,7 +192,10 @@ async function makemoreMLP() {
       Xbuf.write(flatX);
       Ybuf.write(flatY);
 
-      const Xbatch = Xbuf.slice([[0, B], [0, blockSize]]);
+      const Xbatch = Xbuf.slice([
+        [0, B],
+        [0, blockSize],
+      ]);
       const Ybatch = Ybuf.slice([[0, B]]);
 
       const t0 = performance.now();
@@ -241,26 +223,21 @@ async function makemoreMLP() {
       const elapsedMs = t1 - t0;
       stepTimes.push(elapsedMs);
       windowSum += elapsedMs;
-      if (stepTimes.length > 100)
-        windowSum -= stepTimes[stepTimes.length - 101];
+      if (stepTimes.length > 100) windowSum -= stepTimes[stepTimes.length - 101];
 
       epochLossSum += lossValue;
       epochStepCount++;
 
       if (globalStep % 100 === 0) {
         console.log(
-          `Step ${globalStep}, loss: ${lossValue} (step time ${(
-            elapsedMs / 1000
-          ).toFixed(3)}s)`
+          `Step ${globalStep}, loss: ${lossValue} (step time ${(elapsedMs / 1000).toFixed(3)}s)`,
         );
       }
 
       if ((globalStep + 1) % 100 === 0) {
         const count = Math.min(100, stepTimes.length);
         const avgMs = windowSum / count;
-        console.log(
-          `Avg step time (last ${count}): ${(avgMs / 1000).toFixed(3)}s`
-        );
+        console.log(`Avg step time (last ${count}): ${(avgMs / 1000).toFixed(3)}s`);
       }
 
       globalStep++;
@@ -269,11 +246,9 @@ async function makemoreMLP() {
     // end of epoch: report epoch stats and decay LR
     const epochAvgLoss = epochStepCount > 0 ? epochLossSum / epochStepCount : 0;
     console.log(
-      `Epoch ${
-        epoch + 1
-      }/${numEpochs} finished — avg loss: ${epochAvgLoss.toFixed(
-        6
-      )} — steps this epoch: ${epochStepCount}`
+      `Epoch ${epoch + 1}/${numEpochs} finished — avg loss: ${epochAvgLoss.toFixed(
+        6,
+      )} — steps this epoch: ${epochStepCount}`,
     );
 
     // decay learning rate once per epoch
@@ -284,9 +259,7 @@ async function makemoreMLP() {
     // early stopping check
     if (epochAvgLoss <= earlyStopThreshold) {
       console.log(
-        `Early stopping: epochAvgLoss=${epochAvgLoss.toFixed(
-          6
-        )} <= ${earlyStopThreshold}`
+        `Early stopping: epochAvgLoss=${epochAvgLoss.toFixed(6)} <= ${earlyStopThreshold}`,
       );
       break;
     }
@@ -297,7 +270,7 @@ async function makemoreMLP() {
 
   await noGrad(async () => {
     for (let sampleIdx = 0; sampleIdx < 10; sampleIdx++) {
-      let context = new Array(blockSize).fill(".");
+      const context = new Array(blockSize).fill(".");
       let generated = "";
 
       while (true) {

@@ -5,12 +5,7 @@ import * as transpose from "./kernels/transpose";
 import * as reductions from "./kernels/reductions";
 import * as embedding from "./kernels/embedding";
 import { defineWorkerOnMessage } from "../../shared/utils";
-import {
-  CoordinatorRequest,
-  ComputeRequest,
-  ComputeResponse,
-  TypedPort,
-} from "../../shared/types";
+import { CoordinatorRequest, ComputeRequest, ComputeResponse, TypedPort } from "../../shared/types";
 
 // Types
 type WorkerRole = "COORDINATOR" | "COMPUTE";
@@ -25,12 +20,11 @@ interface TensorMetadata {
 let role: WorkerRole = "COORDINATOR"; // Default, changes on init
 let memoryAllocator: MemoryAllocator | null = null;
 let buffer: SharedArrayBuffer | null = null;
-let tensorRegistry: Map<string, TensorMetadata> = new Map();
+const tensorRegistry = new Map<string, TensorMetadata>();
 
 // Coordinator State
-let computePorts: TypedPort<ComputeRequest, ComputeResponse>[] = [];
-let pendingTasks: Map<string, { resolve: () => void; count: number }> =
-  new Map();
+const computePorts: TypedPort<ComputeRequest, ComputeResponse>[] = [];
+const pendingTasks = new Map<string, { resolve: () => void; count: number }>();
 let commandQueue = Promise.resolve(); // Serialization queue for Coordinator
 
 // Compute State
@@ -44,100 +38,93 @@ let coordinatorPort: TypedPort<ComputeResponse, ComputeRequest> | null = null;
 // Let's just cast inside for simplicity or use a union type if we want to be strict.
 // Since defineWorkerOnMessage takes a generic T, we can use CoordinatorRequest | ComputeRequest
 
-self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>(
-  (data, ports) => {
-    const { type } = data;
+self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((data, ports) => {
+  const { type } = data;
 
-    if (type === "INIT_COORDINATOR") {
-      role = "COORDINATOR";
-      const payload = data.payload; // TS might struggle with the union discrimination here without a switch
-      buffer = payload.buffer;
-      memoryAllocator = new MemoryAllocator(buffer!);
-      // Acknowledge init
-      self.postMessage({ id: data.id, data: { status: "ok" } });
-      return;
-    }
-
-    if (type === "INIT_WORKER") {
-      role = "COMPUTE";
-      const payload = data.payload;
-      buffer = payload.buffer;
-
-      // The port comes in the transfer list
-      const port = ports[0];
-      coordinatorPort = new TypedPort(port);
-      setupComputeWorker(coordinatorPort);
-      return;
-    }
-
-    if (type === "ADD_WORKER") {
-      if (role !== "COORDINATOR") return;
-      const port = ports[0];
-      const typedPort = new TypedPort<ComputeRequest, ComputeResponse>(port);
-      computePorts.push(typedPort);
-      setupCoordinatorPort(typedPort);
-      return;
-    }
-
-    // Coordinator Commands
-    if (role === "COORDINATOR") {
-      const req = data as CoordinatorRequest;
-      // We must serialize commands that touch memory or depend on previous ops
-      // ALLOC/FREE are sync and fast, but to be safe and simple, let's queue everything
-      // or at least queue OP and READ.
-
-      commandQueue = commandQueue
-        .then(async () => {
-          switch (req.type) {
-            case "ALLOC":
-              handleAlloc(req.payload);
-              break;
-            case "ALLOC_VIEW":
-              handleAllocView(req.payload);
-              break;
-            case "FREE":
-              handleFree(req.payload);
-              break;
-            case "SET":
-              handleSet(req.payload);
-              break;
-            case "WRITE":
-              handleWrite(req.payload);
-              break;
-            case "OP":
-              await handleOp(
-                { ...req.payload, params: req.payload.params || {} },
-                req.id
-              );
-              break;
-            case "READ":
-              handleRead(req.payload, req.id);
-              break;
-              case "READ_VIEW":
-                handleReadView(req.payload, req.id);
-                break;
-            case "READ_VALUE":
-              handleReadValue(req.payload, req.id);
-              break;
-          }
-        })
-        .catch((err) => {
-          console.error("Coordinator Error:", err);
-          // If we have an ID, we should probably reply with error, but for now just log
-          const reqId = (req as any).id;
-          if (reqId) {
-            self.postMessage({ id: reqId, error: err.message });
-          }
-        });
-    }
+  if (type === "INIT_COORDINATOR") {
+    role = "COORDINATOR";
+    const payload = data.payload; // TS might struggle with the union discrimination here without a switch
+    buffer = payload.buffer;
+    memoryAllocator = new MemoryAllocator(buffer!);
+    // Acknowledge init
+    self.postMessage({ id: data.id, data: { status: "ok" } });
+    return;
   }
-);
+
+  if (type === "INIT_WORKER") {
+    role = "COMPUTE";
+    const payload = data.payload;
+    buffer = payload.buffer;
+
+    // The port comes in the transfer list
+    const port = ports[0];
+    coordinatorPort = new TypedPort(port);
+    setupComputeWorker(coordinatorPort);
+    return;
+  }
+
+  if (type === "ADD_WORKER") {
+    if (role !== "COORDINATOR") return;
+    const port = ports[0];
+    const typedPort = new TypedPort<ComputeRequest, ComputeResponse>(port);
+    computePorts.push(typedPort);
+    setupCoordinatorPort(typedPort);
+    return;
+  }
+
+  // Coordinator Commands
+  if (role === "COORDINATOR") {
+    const req = data as CoordinatorRequest;
+    // We must serialize commands that touch memory or depend on previous ops
+    // ALLOC/FREE are sync and fast, but to be safe and simple, let's queue everything
+    // or at least queue OP and READ.
+
+    commandQueue = commandQueue
+      .then(async () => {
+        switch (req.type) {
+          case "ALLOC":
+            handleAlloc(req.payload);
+            break;
+          case "ALLOC_VIEW":
+            handleAllocView(req.payload);
+            break;
+          case "FREE":
+            handleFree(req.payload);
+            break;
+          case "SET":
+            handleSet(req.payload);
+            break;
+          case "WRITE":
+            handleWrite(req.payload);
+            break;
+          case "OP":
+            await handleOp({ ...req.payload, params: req.payload.params || {} }, req.id);
+            break;
+          case "READ":
+            handleRead(req.payload, req.id);
+            break;
+          case "READ_VIEW":
+            handleReadView(req.payload, req.id);
+            break;
+          case "READ_VALUE":
+            handleReadValue(req.payload, req.id);
+            break;
+        }
+      })
+      .catch((err) => {
+        console.error("Coordinator Error:", err);
+        // If we have an ID, we should probably reply with error, but for now just log
+        const reqId = (req as any).id;
+        if (reqId) {
+          self.postMessage({ id: reqId, error: err.message });
+        }
+      });
+  }
+});
 
 // --- Coordinator Logic ---
 
-function setupCoordinatorPort(
-  port: TypedPort<ComputeRequest, ComputeResponse>
-) {
+function setupCoordinatorPort(port: TypedPort<ComputeRequest, ComputeResponse>) {
   port.onMessage((data) => {
     if (data.type === "TASK_DONE") {
       const task = pendingTasks.get(data.taskId);
@@ -166,28 +153,20 @@ function handleAlloc(payload: { id: string; size: number }) {
   }
 }
 
-function handleAllocView(payload: {
-  id: string;
-  parentId: string;
-  offset?: number;
-}) {
+function handleAllocView(payload: { id: string; parentId: string; offset?: number }) {
   // View tensors share the same memory as their parent, optionally with an offset
   const parentMeta = tensorRegistry.get(payload.parentId);
   if (parentMeta) {
     const providedOffset = payload.offset;
     const offset =
-      typeof providedOffset === "number"
-        ? parentMeta.offset + providedOffset
-        : parentMeta.offset;
+      typeof providedOffset === "number" ? parentMeta.offset + providedOffset : parentMeta.offset;
     tensorRegistry.set(payload.id, {
       offset,
       size: parentMeta.size,
       isView: true,
     });
   } else {
-    console.error(
-      `Cannot create view: parent tensor ${payload.parentId} not found`
-    );
+    console.error(`Cannot create view: parent tensor ${payload.parentId} not found`);
   }
 }
 
@@ -223,7 +202,7 @@ function handleWrite(payload: { id: string; data: Float32Array }) {
 
 async function handleOp(
   payload: { op: string; inputs: string[]; output: string; params: any },
-  reqId?: string
+  reqId?: string,
 ) {
   // 1. Resolve Tensor IDs to Offsets
   const inputMetas = payload.inputs.map((id) => tensorRegistry.get(id));
@@ -359,7 +338,7 @@ function handleRead(payload: { id: string }, reqId: string) {
       id: reqId,
       data: { data: copy },
     },
-    [copy.buffer]
+    [copy.buffer],
   );
 }
 
@@ -375,10 +354,7 @@ function handleReadView(payload: { id: string }, reqId: string) {
   self.postMessage({ id: reqId, data: { offset: meta.offset, size: meta.size } });
 }
 
-function handleReadValue(
-  payload: { id: string; offset: number },
-  reqId: string
-) {
+function handleReadValue(payload: { id: string; offset: number }, reqId: string) {
   const meta = tensorRegistry.get(payload.id);
   if (!meta || !buffer) return;
 
@@ -402,7 +378,7 @@ function setupComputeWorker(port: TypedPort<ComputeResponse, ComputeRequest>) {
         data.output,
         data.params,
         data.workerIndex,
-        data.totalWorkers
+        data.totalWorkers,
       );
       port.postMessage({ type: "TASK_DONE", taskId: data.taskId });
     }
@@ -415,13 +391,11 @@ function executeKernel(
   output: any,
   params: any,
   workerIndex: number,
-  totalWorkers: number
+  totalWorkers: number,
 ) {
   if (!buffer) return;
 
-  const inputViews = inputs.map(
-    (meta) => new Float32Array(buffer!, meta.offset, meta.size / 4)
-  );
+  const inputViews = inputs.map((meta) => new Float32Array(buffer!, meta.offset, meta.size / 4));
   const outputView = new Float32Array(buffer!, output.offset, output.size / 4);
 
   // Special handling for MatMul (Row-based sharding)
@@ -442,7 +416,7 @@ function executeKernel(
         startRow,
         endRow,
         params.stridesA,
-        params.stridesB
+        params.stridesB,
       );
     }
     return;
@@ -476,7 +450,7 @@ function executeKernel(
         m,
         n,
         startRow,
-        endRow
+        endRow,
       );
     }
     return;
@@ -509,13 +483,7 @@ function executeKernel(
     const end = Math.min(start + chunkSize, totalElements);
 
     if (start < totalElements) {
-      reductions.sum_partial(
-        inputViews[0],
-        outputView,
-        params.outIndex,
-        start,
-        end
-      );
+      reductions.sum_partial(inputViews[0], outputView, params.outIndex, start, end);
     } else {
       outputView[params.outIndex] = 0;
     }
@@ -547,7 +515,7 @@ function executeKernel(
         end,
         params.shape,
         params.stridesA,
-        params.stridesB
+        params.stridesB,
       );
       break;
     case "SUB":
@@ -559,7 +527,7 @@ function executeKernel(
         end,
         params.shape,
         params.stridesA,
-        params.stridesB
+        params.stridesB,
       );
       break;
     case "MUL":
@@ -571,7 +539,7 @@ function executeKernel(
         end,
         params.shape,
         params.stridesA,
-        params.stridesB
+        params.stridesB,
       );
       break;
     case "DIV":
@@ -583,18 +551,11 @@ function executeKernel(
         end,
         params.shape,
         params.stridesA,
-        params.stridesB
+        params.stridesB,
       );
       break;
     case "RELU":
-      elementwise.relu(
-        inputViews[0],
-        outputView,
-        start,
-        end,
-        params.shape,
-        params.strides
-      );
+      elementwise.relu(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
     case "RELU_BACKWARD":
       elementwise.relu_backward(
@@ -604,49 +565,22 @@ function executeKernel(
         start,
         end,
         params.shape,
-        params.strides
+        params.strides,
       );
       break;
     case "EXP":
-      elementwise.exp(
-        inputViews[0],
-        outputView,
-        start,
-        end,
-        params.shape,
-        params.strides
-      );
+      elementwise.exp(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
     case "TANH":
-      elementwise.tanh(
-        inputViews[0],
-        outputView,
-        start,
-        end,
-        params.shape,
-        params.strides
-      );
+      elementwise.tanh(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
     case "TANH_BACKWARD":
       // inputs: [output (tanh(x)), gradOutput]
       // outputView is gradInput
-      elementwise.tanh_backward(
-        inputViews[0],
-        inputViews[1],
-        outputView,
-        start,
-        end
-      );
+      elementwise.tanh_backward(inputViews[0], inputViews[1], outputView, start, end);
       break;
     case "LOG":
-      elementwise.log(
-        inputViews[0],
-        outputView,
-        start,
-        end,
-        params.shape,
-        params.strides
-      );
+      elementwise.log(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
     case "FILL":
       elementwise.fill(outputView, params.value, start, end);
@@ -662,30 +596,17 @@ function executeKernel(
         end,
         params.shape,
         params.strides,
-        params.axis
+        params.axis,
       );
       break;
     case "ADD_SCALAR_TENSOR":
-      reductions.add_scalar_tensor(
-        inputViews[0],
-        inputViews[1],
-        outputView,
-        start,
-        end
-      );
+      reductions.add_scalar_tensor(inputViews[0], inputViews[1], outputView, start, end);
       break;
     case "COPY":
       elementwise.copy(inputViews[0], outputView, start, end);
       break;
     case "MATERIALIZE":
-      elementwise.materialize(
-        inputViews[0],
-        outputView,
-        start,
-        end,
-        params.shape,
-        params.strides
-      );
+      elementwise.materialize(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
     case "EMBEDDING":
       embedding.embedding(
@@ -694,7 +615,7 @@ function executeKernel(
         outputView,
         params.embeddingDim,
         start,
-        end
+        end,
       );
       break;
     case "EMBEDDING_BACKWARD":
@@ -704,7 +625,7 @@ function executeKernel(
         inputViews[1],
         params.embeddingDim,
         start,
-        end
+        end,
       );
       break;
     default:

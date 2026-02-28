@@ -57,9 +57,7 @@ async function main() {
   for (const s of matSizes) {
     const res = benchMatmul(s, s, s, 7);
     console.log(
-      `matmul ${s}x${s}: median ${res.medianMs.toFixed(
-        3
-      )} ms — ${res.gflops.toFixed(3)} GFLOPS`
+      `matmul ${s}x${s}: median ${res.medianMs.toFixed(3)} ms — ${res.gflops.toFixed(3)} GFLOPS`,
     );
   }
 
@@ -68,8 +66,8 @@ async function main() {
     const res = benchAdd(n, 10);
     console.log(
       `add ${n}: median ${res.medianMs.toFixed(3)} ms — ${Math.round(
-        res.opsPerSec
-      ).toLocaleString()} ops/sec`
+        res.opsPerSec,
+      ).toLocaleString()} ops/sec`,
     );
   }
 }

@@ -225,28 +225,27 @@ Just for fun, to teach myself how to work with shared-memory parallelism in JS, 
 
 The table captures timings for executing parallelized matrix multiplication across various thread counts and matrix dimensions.
 
-| Thread Count |     |      Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
-| -----------: | :-: | --------------------------: | ----------: | ------ |
-| Thread Count |     |      Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
-| -----------: | :-: | --------------------------: | ----------: | ------ |
-|            1 |     | $128 \times 128 \times 128$ |       3.470 | 1.209  |
-|              |     | $256 \times 128 \times 128$ |       6.805 | 1.233  |
-|              |     | $256 \times 256 \times 256$ |      26.975 | 1.244  |
-|              |     | $512 \times 512 \times 512$ |     222.045 | 1.209  |
-|            2 |     | $128 \times 128 \times 128$ |       1.990 | 2.108  |
-|              |     | $256 \times 128 \times 128$ |       3.880 | 2.162  |
-|              |     | $256 \times 256 \times 256$ |      14.715 | 2.280  |
-|              |     | $512 \times 512 \times 512$ |     129.665 | 2.070  |
-|            4 |     | $128 \times 128 \times 128$ |       1.660 | 2.527  |
-|              |     | $256 \times 128 \times 128$ |       2.290 | 3.663  |
-|              |     | $256 \times 256 \times 256$ |       8.930 | 3.757  |
-|              |     | $512 \times 512 \times 512$ |      87.080 | 3.083  |
-|            8 |     | $128 \times 128 \times 128$ |       1.505 | 2.787  |
-|              |     | $256 \times 128 \times 128$ |       2.335 | 3.593  |
-|              |     | $256 \times 256 \times 256$ |       8.835 | 3.798  |
-|              |     | $512 \times 512 \times 512$ |      73.570 | 3.649  |
-|              |     | $1024 \times 1024 \times 1024$ |    558.990 | 3.842  |
-
+| Thread Count |     |         Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
+| -----------: | :-: | -----------------------------: | ----------: | ------ |
+| Thread Count |     |         Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
+| -----------: | :-: |    --------------------------: | ----------: | ------ |
+|            1 |     |    $128 \times 128 \times 128$ |       3.470 | 1.209  |
+|              |     |    $256 \times 128 \times 128$ |       6.805 | 1.233  |
+|              |     |    $256 \times 256 \times 256$ |      26.975 | 1.244  |
+|              |     |    $512 \times 512 \times 512$ |     222.045 | 1.209  |
+|            2 |     |    $128 \times 128 \times 128$ |       1.990 | 2.108  |
+|              |     |    $256 \times 128 \times 128$ |       3.880 | 2.162  |
+|              |     |    $256 \times 256 \times 256$ |      14.715 | 2.280  |
+|              |     |    $512 \times 512 \times 512$ |     129.665 | 2.070  |
+|            4 |     |    $128 \times 128 \times 128$ |       1.660 | 2.527  |
+|              |     |    $256 \times 128 \times 128$ |       2.290 | 3.663  |
+|              |     |    $256 \times 256 \times 256$ |       8.930 | 3.757  |
+|              |     |    $512 \times 512 \times 512$ |      87.080 | 3.083  |
+|            8 |     |    $128 \times 128 \times 128$ |       1.505 | 2.787  |
+|              |     |    $256 \times 128 \times 128$ |       2.335 | 3.593  |
+|              |     |    $256 \times 256 \times 256$ |       8.835 | 3.798  |
+|              |     |    $512 \times 512 \times 512$ |      73.570 | 3.649  |
+|              |     | $1024 \times 1024 \times 1024$ |     558.990 | 3.842  |
 
 The observed limited speedup from 4 → 8 threads is likely due to memory-bandwidth saturation, increased cache pressure when working sets exceed on-chip caches, and the use of logical (hyper) threads beyond available physical cores. The kernel now uses a blocked (tiled) matrix-multiplication approach, where each thread works on cache-sized tiles and accumulates locally, greatly improving data locality and scaling across more cores.
 

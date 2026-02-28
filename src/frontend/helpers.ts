@@ -16,11 +16,8 @@ export function crossEntropy(input: Tensor, target: Tensor): Tensor {
   // If target is integer labels (shape [N] or [N,1]), convert to one-hot using
   // an identity matrix and the existing `embedding` op to avoid any async reads.
   let targetsOneHot: Tensor;
-  if (
-    target.shape.length === 1 ||
-    (target.shape.length === 2 && target.shape[1] === 1)
-  ) {
-    const N = target.shape[0];
+  if (target.shape.length === 1 || (target.shape.length === 2 && target.shape[1] === 1)) {
+    const _N = target.shape[0];
     const C = input.shape[1];
 
     // Build identity matrix [C, C] as Float32Array (diagonal ones)

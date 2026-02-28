@@ -1,12 +1,6 @@
 import torchic, { Tensor } from "../../src/index";
 
-async function benchMatmulE2E(
-  m: number,
-  k: number,
-  n: number,
-  threads: number,
-  trials = 10
-) {
+async function benchMatmulE2E(m: number, k: number, n: number, threads: number, trials = 10) {
   const logs: string[] = [];
   const push = (s: string) => logs.push(s);
   push(`Initializing Tensor runtime with ${threads} threads...`);
@@ -23,16 +17,10 @@ async function benchMatmulE2E(
 
   const times: number[] = [];
   // Read A and B once for correctness validation
-  const Adata = await A.toArray(false);
-  const Bdata = await B.toArray(false);
+  const _Adata = await A.toArray(false);
+  const _Bdata = await B.toArray(false);
 
-  function naiveMatmul(
-    a: Float32Array,
-    b: Float32Array,
-    m: number,
-    k: number,
-    n: number
-  ) {
+  function _naiveMatmul(a: Float32Array, b: Float32Array, m: number, k: number, n: number) {
     const out = new Float32Array(m * n);
     for (let i = 0; i < m; i++) {
       const aRowBase = i * k;
@@ -52,13 +40,13 @@ async function benchMatmulE2E(
   for (let t = 0; t < trials; t++) {
     const t0 = performance.now();
     const out = A.matmul(B);
-    const arr = await out.toArray(false);
+    const _arr = await out.toArray(false);
     const t1 = performance.now();
     times.push(t1 - t0);
 
     // validate against naive result
-    let maxDiff = 0;
-    let mismatches = 0;
+    const maxDiff = 0;
+    const mismatches = 0;
     // for (let i = 0; i < arr.length; i++) {
     //   const d = Math.abs(arr[i] - expected[i]);
     //   if (d > maxDiff) maxDiff = d;
@@ -69,8 +57,8 @@ async function benchMatmulE2E(
 
     push(
       `trial ${t + 1}/${trials}: ${(t1 - t0).toFixed(
-        3
-      )} ms (maxDiff=${maxDiff.toExponential()}, mismatches=${mismatches})`
+        3,
+      )} ms (maxDiff=${maxDiff.toExponential()}, mismatches=${mismatches})`,
     );
   }
 
@@ -81,8 +69,8 @@ async function benchMatmulE2E(
 
   push(
     `E2E matmul ${m}x${k} * ${k}x${n} with ${threads} threads: median ${median.toFixed(
-      3
-    )} ms — ${gflops.toFixed(3)} GFLOPS`
+      3,
+    )} ms — ${gflops.toFixed(3)} GFLOPS`,
   );
   return { m, k, n, threads, medianMs: median, gflops, logs };
 }
@@ -92,7 +80,7 @@ export async function runBench(threads: number, log: (msg: string) => void) {
   // Ensure previous runtime (if any) is shut down so we can reinit with new thread count
   try {
     torchic.shutdown();
-  } catch (e) {
+  } catch {
     // ignore
   }
   // sizes tuned to be realistic

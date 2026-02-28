@@ -1,17 +1,17 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  root: 'tests',
+  root: "tests",
   server: {
     headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
     },
   },
   worker: {
-    format: 'es',
+    format: "es",
   },
   build: {
-    target: 'esnext',
-  }
+    target: "esnext",
+  },
 });
