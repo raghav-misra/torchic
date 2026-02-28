@@ -13,11 +13,11 @@ type WorkerRole = "COORDINATOR" | "COMPUTE";
 interface TensorMetadata {
   offset: number;
   size: number;
-  isView: boolean; // True if this tensor is a view sharing memory with another tensor
+  isView: boolean;
 }
 
 // Global State
-let role: WorkerRole = "COORDINATOR"; // Default, changes on init
+let role: WorkerRole = "COORDINATOR";
 let memoryAllocator: MemoryAllocator | null = null;
 let buffer: SharedArrayBuffer | null = null;
 const tensorRegistry = new Map<string, TensorMetadata>();
@@ -25,28 +25,21 @@ const tensorRegistry = new Map<string, TensorMetadata>();
 // Coordinator State
 const computePorts: TypedPort<ComputeRequest, ComputeResponse>[] = [];
 const pendingTasks = new Map<string, { resolve: () => void; count: number }>();
-let commandQueue = Promise.resolve(); // Serialization queue for Coordinator
+let commandQueue = Promise.resolve();
 
 // Compute State
 let coordinatorPort: TypedPort<ComputeResponse, ComputeRequest> | null = null;
 
 // --- Message Handlers ---
 
-// We use a union type for the handler because the worker can receive both types of messages
-// depending on its role (initially it receives CoordinatorRequest or ComputeRequest)
-// Actually, the main thread sends CoordinatorRequest (mostly) or ComputeRequest (INIT_WORKER)
-// Let's just cast inside for simplicity or use a union type if we want to be strict.
-// Since defineWorkerOnMessage takes a generic T, we can use CoordinatorRequest | ComputeRequest
-
 self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((data, ports) => {
   const { type } = data;
 
   if (type === "INIT_COORDINATOR") {
     role = "COORDINATOR";
-    const payload = data.payload; // TS might struggle with the union discrimination here without a switch
+    const payload = data.payload;
     buffer = payload.buffer;
     memoryAllocator = new MemoryAllocator(buffer!);
-    // Acknowledge init
     self.postMessage({ id: data.id, data: { status: "ok" } });
     return;
   }
@@ -56,7 +49,6 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((dat
     const payload = data.payload;
     buffer = payload.buffer;
 
-    // The port comes in the transfer list
     const port = ports[0];
     coordinatorPort = new TypedPort(port);
     setupComputeWorker(coordinatorPort);
@@ -72,12 +64,8 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((dat
     return;
   }
 
-  // Coordinator Commands
   if (role === "COORDINATOR") {
     const req = data as CoordinatorRequest;
-    // We must serialize commands that touch memory or depend on previous ops
-    // ALLOC/FREE are sync and fast, but to be safe and simple, let's queue everything
-    // or at least queue OP and READ.
 
     commandQueue = commandQueue
       .then(async () => {
@@ -113,7 +101,6 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((dat
       })
       .catch((err) => {
         console.error("Coordinator Error:", err);
-        // If we have an ID, we should probably reply with error, but for now just log
         const reqId = (req as any).id;
         if (reqId) {
           self.postMessage({ id: reqId, error: err.message });
@@ -154,7 +141,6 @@ function handleAlloc(payload: { id: string; size: number }) {
 }
 
 function handleAllocView(payload: { id: string; parentId: string; offset?: number }) {
-  // View tensors share the same memory as their parent, optionally with an offset
   const parentMeta = tensorRegistry.get(payload.parentId);
   if (parentMeta) {
     const providedOffset = payload.offset;
@@ -174,7 +160,6 @@ function handleFree(payload: { id: string }) {
   if (!memoryAllocator) return;
   const meta = tensorRegistry.get(payload.id);
   if (meta) {
-    // Only free memory if this is not a view (views share memory with their parent)
     if (!meta.isView) {
       memoryAllocator.free(meta.offset, meta.size);
     }
@@ -204,7 +189,6 @@ async function handleOp(
   payload: { op: string; inputs: string[]; output: string; params: any },
   reqId?: string,
 ) {
-  // 1. Resolve Tensor IDs to Offsets
   const inputMetas = payload.inputs.map((id) => tensorRegistry.get(id));
   const outputMeta = tensorRegistry.get(payload.output);
 
@@ -215,15 +199,13 @@ async function handleOp(
 
   const numWorkers = computePorts.length;
 
-  // Special Handling for SUM (Coordinator Logic)
+  // SUM: two-phase reduce (partial sums -> final sum)
   if (payload.op === "SUM") {
     if (!memoryAllocator) return;
 
-    // 1. Allocate Temp Buffer for Partial Sums
     const tempSize = numWorkers * 4;
     const tempOffset = memoryAllocator.allocate(tempSize);
 
-    // 2. Dispatch SUM_PARTIAL
     const taskId1 = Math.random().toString(36).substring(7);
     const donePromise1 = new Promise<void>((resolve) => {
       pendingTasks.set(taskId1, { resolve, count: numWorkers });
@@ -235,7 +217,7 @@ async function handleOp(
         taskId: taskId1,
         op: "SUM_PARTIAL",
         inputs: [{ offset: inputMetas[0]!.offset, size: inputMetas[0]!.size }],
-        output: { offset: tempOffset, size: tempSize }, // Workers write to specific index here
+        output: { offset: tempOffset, size: tempSize },
         params: { outIndex: index },
         workerIndex: index,
         totalWorkers: numWorkers,
@@ -244,7 +226,6 @@ async function handleOp(
 
     await donePromise1;
 
-    // 3. Dispatch SUM_FINAL (Single Worker)
     const taskId2 = Math.random().toString(36).substring(7);
     const donePromise2 = new Promise<void>((resolve) => {
       pendingTasks.set(taskId2, { resolve, count: 1 });
@@ -263,7 +244,6 @@ async function handleOp(
 
     await donePromise2;
 
-    // 4. Free Temp
     memoryAllocator.free(tempOffset, tempSize);
 
     if (reqId) {
@@ -272,7 +252,7 @@ async function handleOp(
     return;
   }
 
-  // Special Handling for EMBEDDING_BACKWARD (Single Worker to avoid race conditions)
+  // Single worker to avoid race conditions on scatter-add
   if (payload.op === "EMBEDDING_BACKWARD") {
     const taskId = Math.random().toString(36).substring(7);
     const donePromise = new Promise<void>((resolve) => {
@@ -295,14 +275,12 @@ async function handleOp(
     return;
   }
 
-  // 2. Split the work (Sharding Logic)
   const taskId = Math.random().toString(36).substring(7);
 
   const donePromise = new Promise<void>((resolve) => {
     pendingTasks.set(taskId, { resolve, count: numWorkers });
   });
 
-  // 3. Dispatch to Compute Workers
   computePorts.forEach((port, index) => {
     port.postMessage({
       type: "EXECUTE_TASK",
@@ -316,7 +294,6 @@ async function handleOp(
     });
   });
 
-  // 4. Wait and Reply
   await donePromise;
 
   if (reqId) {
@@ -328,8 +305,6 @@ function handleRead(payload: { id: string }, reqId: string) {
   const meta = tensorRegistry.get(payload.id);
   if (!meta || !buffer) return;
 
-  // Simply read the contiguous data
-  // (materialize() is called on frontend before read if needed)
   const src = new Float32Array(buffer, meta.offset, meta.size / 4);
   const copy = new Float32Array(src);
 
@@ -345,12 +320,10 @@ function handleRead(payload: { id: string }, reqId: string) {
 function handleReadView(payload: { id: string }, reqId: string) {
   const meta = tensorRegistry.get(payload.id);
   if (!meta) {
-    // reply with error if missing
     self.postMessage({ id: reqId, error: `Tensor ${payload.id} not found` });
     return;
   }
 
-  // Return offset/size metadata so the main thread can create a zero-copy view
   self.postMessage({ id: reqId, data: { offset: meta.offset, size: meta.size } });
 }
 
@@ -398,7 +371,6 @@ function executeKernel(
   const inputViews = inputs.map((meta) => new Float32Array(buffer!, meta.offset, meta.size / 4));
   const outputView = new Float32Array(buffer!, output.offset, output.size / 4);
 
-  // Special handling for MatMul (Row-based sharding)
   if (op === "MATMUL") {
     const { m, n, k } = params;
     const rowsPerWorker = Math.ceil(m / totalWorkers);
@@ -422,7 +394,6 @@ function executeKernel(
     return;
   }
 
-  // Special handling for SOFTMAX on 2D tensors (row-wise independent)
   if (op === "SOFTMAX") {
     const { m, n } = params;
     const rowsPerWorker = Math.ceil(m / totalWorkers);
@@ -442,7 +413,6 @@ function executeKernel(
     const endRow = Math.min(startRow + rowsPerWorker, m);
 
     if (startRow < m) {
-      // inputs: [output(softmax), gradOutput]
       elementwise.softmax_backward2d(
         inputViews[0],
         inputViews[1],
@@ -456,10 +426,8 @@ function executeKernel(
     return;
   }
 
-  // Special handling for Transpose
   if (op === "TRANSPOSE") {
-    const { m, n } = params; // Input shape [m, n], Output shape [n, m]
-    // We shard the OUTPUT rows (0 to n)
+    const { m, n } = params;
     const rowsPerWorker = Math.ceil(n / totalWorkers);
     const startRow = workerIndex * rowsPerWorker;
     const endRow = Math.min(startRow + rowsPerWorker, n);
@@ -471,12 +439,6 @@ function executeKernel(
   }
 
   if (op === "SUM_PARTIAL") {
-    // Input: Large array
-    // Output: Small array (size = numWorkers)
-    // We write to output[params.outIndex]
-    // We sum input[start...end]
-
-    // Re-calculate start/end for the INPUT array
     const totalElements = inputViews[0].length;
     const chunkSize = Math.ceil(totalElements / totalWorkers);
     const start = workerIndex * chunkSize;
@@ -491,13 +453,10 @@ function executeKernel(
   }
 
   if (op === "SUM_FINAL") {
-    // Input: Small array (partial sums)
-    // Output: Scalar (size 1)
     reductions.sum_final(inputViews[0], outputView, params.n);
     return;
   }
 
-  // Default: Element-wise (Flat sharding)
   const totalElements = outputView.length;
   const chunkSize = Math.ceil(totalElements / totalWorkers);
   const start = workerIndex * chunkSize;
@@ -575,8 +534,6 @@ function executeKernel(
       elementwise.tanh(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
     case "TANH_BACKWARD":
-      // inputs: [output (tanh(x)), gradOutput]
-      // outputView is gradInput
       elementwise.tanh_backward(inputViews[0], inputViews[1], outputView, start, end);
       break;
     case "LOG":

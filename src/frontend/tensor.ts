@@ -22,8 +22,6 @@ export async function noGrad<T>(fn: () => Promise<T>): Promise<T> {
   });
 }
 
-// ...existing code...
-
 export async function trackTensors<T>(fn: () => Promise<T>): Promise<T> {
   if (_activeTracking) {
     throw new Error("Nested tracking not supported yet");
@@ -102,18 +100,15 @@ export class Tensor {
       }
       return end - start;
     });
-    // Compute relative start in elements (sum over dims start*stride)
     const relativeStartElements = ranges.reduce(
       (acc, [start], i) => acc + start * this.strides[i],
       0,
     );
 
-    // Request coordinator to create a view with the relative byte offset
     const viewId = dispatcher!.nextTensorId();
-    const relativeOffsetBytes = relativeStartElements * 4; // elements -> bytes
+    const relativeOffsetBytes = relativeStartElements * 4;
     dispatcher!.allocateView(viewId, this.id, relativeOffsetBytes);
 
-    // Create Tensor with the correct (JS-side) offset for convenience
     const newOffset = this.offset + relativeOffsetBytes;
     return new Tensor(viewId, newShape, this.requiresGrad, newOffset, this.strides);
   }
@@ -138,8 +133,8 @@ export class Tensor {
       }
       flatIndex += indices[i] * this.strides[i];
     }
-    // Adjust for offset
-    flatIndex += this.offset / 4; // offset is in bytes, strides are in elements
+    // offset is in bytes, strides are in elements
+    flatIndex += this.offset / 4;
     dispatcher!.set(this.id, flatIndex, value);
   }
 
@@ -161,7 +156,6 @@ export class Tensor {
   }
 
   private isContiguous(): boolean {
-    // Check if strides match C-contiguous layout
     let expectedStride = 1;
     for (let i = this.shape.length - 1; i >= 0; i--) {
       if (this.strides[i] !== expectedStride) return false;
@@ -171,10 +165,8 @@ export class Tensor {
   }
 
   private materialize(): Tensor {
-    // If already contiguous, return self
     if (this.isContiguous()) return this;
 
-    // Create a new contiguous copy
     const outId = dispatcher!.nextTensorId();
     const size = this.numElements() * 4;
 
@@ -184,7 +176,6 @@ export class Tensor {
       strides: this.strides,
     });
 
-    // Preserve gradient tracking from parent
     const out = new Tensor(outId, this.shape, this.requiresGrad);
     if (this.requiresGrad && GradMode.enabled) {
       out.op = "MATERIALIZE";
@@ -259,9 +250,8 @@ export class Tensor {
         // Use external Float32Array directly; worker will copy into SharedArrayBuffer
         typedData = data;
       } else {
-        const flat: number[] = Array.isArray(data) ? [] : [];
-        if (Array.isArray(data)) flattenInto(data, flat);
-        else flat.push(data as number);
+        const flat: number[] = [];
+        flattenInto(data, flat);
         typedData = new Float32Array(flat);
       }
     }
@@ -345,8 +335,6 @@ export class Tensor {
     return this.runUnaryOp("TANH");
   }
 
-  // ...existing code...
-
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
       throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);
@@ -355,7 +343,6 @@ export class Tensor {
       throw new Error(`Shape mismatch for MatMul: ${this.shape} vs ${other.shape}`);
     }
 
-    // Use strided-aware matmul kernel to avoid materializing views where possible.
     const m = this.shape[0];
     const k = this.shape[1];
     const n = other.shape[1];
@@ -377,7 +364,7 @@ export class Tensor {
     const out = new Tensor(outId, outShape, shouldGrad);
     if (shouldGrad) {
       out.op = "MATMUL";
-      out.prev = [this, other]; // Keep original tensors in graph
+      out.prev = [this, other];
     }
 
     return out;
@@ -424,7 +411,6 @@ export class Tensor {
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
     const out = new Tensor(viewId, outShape, shouldGrad, this.offset);
-    // Swap strides: if original was [stride0, stride1], transposed is [stride1, stride0]
     out.strides = [this.strides[1], this.strides[0]];
 
     if (shouldGrad) {
@@ -443,7 +429,6 @@ export class Tensor {
       );
     }
 
-    // Zero-copy: create a view with new ID but same memory offset
     const viewId = dispatcher!.nextTensorId();
     dispatcher!.allocateView(viewId, this.id);
 
@@ -460,7 +445,6 @@ export class Tensor {
   // --- Data Access ---
 
   toArray(clone = true): Promise<Float32Array> {
-    // If non-contiguous (e.g., transposed view), materialize first
     const tensor = this.materialize();
     return clone ? dispatcher!.read(tensor.id) : dispatcher!.readView(tensor.id);
   }
@@ -601,16 +585,12 @@ export class Tensor {
       } else if (v.op === "SUM") {
         const [a] = v.prev;
         if (a.requiresGrad) {
-          // Gradient of sum is 1s expanded to input shape
-          // But since we accumulate gradients, we just add the scalar grad to all elements
-          // We handle this in addGrad via broadcasting
           a.addGrad(v.grad);
         }
       } else if (v.op === "SUM_AXIS") {
         const [a] = v.prev;
         if (a.requiresGrad) {
           let grad = v.grad;
-          // If keepDim was false, we need to restore the dimension
           if (v.shape.length < a.shape.length) {
             const axis = v.params.axis!;
             const newShape = [...v.shape];
@@ -627,8 +607,6 @@ export class Tensor {
   }
 
   private addGrad(g: Tensor) {
-    // Optimization: If g is scalar, we don't need to reshape it,
-    // and we can handle it via broadcasting immediately.
     if (g.numElements() === 1) {
       if (!this.grad) {
         const zeros = Tensor.zeros(this.shape);
@@ -686,11 +664,10 @@ export class Tensor {
 
   sum(axis?: number, keepDim = false): Tensor {
     if (axis === undefined) {
-      // Materialize if non-contiguous
       const input = this.materialize();
 
       const outId = dispatcher!.nextTensorId();
-      const size = 4; // Scalar
+      const size = 4;
 
       dispatcher!.allocate(outId, size);
       dispatcher!.runOp("SUM", [input.id], outId);
@@ -699,7 +676,7 @@ export class Tensor {
       const out = new Tensor(outId, [1], shouldGrad);
       if (shouldGrad) {
         out.op = "SUM";
-        out.prev = [this]; // Keep original in graph
+        out.prev = [this];
       }
 
       return out;
@@ -710,7 +687,6 @@ export class Tensor {
       throw new Error(`Invalid axis ${axis} for shape ${this.shape}`);
     }
 
-    // Materialize if non-contiguous
     const input = this.materialize();
 
     const outShape = input.shape.filter((_, i) => i !== axis);
@@ -732,7 +708,7 @@ export class Tensor {
     const out = new Tensor(outId, finalShape, shouldGrad);
     if (shouldGrad) {
       out.op = "SUM_AXIS";
-      out.prev = [this]; // Keep original in graph
+      out.prev = [this];
       out.params = { axis, keepDim };
     }
 
@@ -746,7 +722,6 @@ export class Tensor {
   }
 
   softmax(axis = -1): Tensor {
-    // Fast path: 2D softmax over last axis (rows independent)
     const axisResolved = axis < 0 ? this.shape.length + axis : axis;
     if (this.shape.length === 2 && axisResolved === 1) {
       const input = this.materialize();
@@ -767,7 +742,6 @@ export class Tensor {
       return out;
     }
 
-    // Fallback: compose from primitive ops (less efficient)
     const exp = this.exp();
     const sumExp = exp.sum(axis, true);
     return exp.div(sumExp);
@@ -802,8 +776,6 @@ export class Tensor {
 
   private runBinaryOpInPlace(op: string, other: Tensor) {
     const outShape = Tensor.broadcastShapes(this.shape, other.shape);
-
-    // Ensure output shape matches this tensor's shape (no resizing allowed)
     if (!this.shapeEquals(outShape)) {
       throw new Error(
         `In-place op requires output shape to match. Got ${this.shape} vs broadcasted ${outShape}`,
@@ -848,9 +820,6 @@ export class Tensor {
   }
 
   private runUnaryOp(op: string): Tensor {
-    // Avoid materialize where possible: pass shape/strides into the kernel so
-    // it can operate on non-contiguous views directly. Kernels should handle
-    // optional shape/strides params.
     const outId = dispatcher!.nextTensorId();
     const size = this.numElements() * 4;
 
@@ -864,7 +833,7 @@ export class Tensor {
     const out = new Tensor(outId, this.shape, shouldGrad);
     if (shouldGrad) {
       out.op = op;
-      out.prev = [this]; // Keep original in graph
+      out.prev = [this];
     }
 
     return out;

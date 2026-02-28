@@ -1,6 +1,3 @@
-// Element-wise operations
-// These are embarrassingly parallel. We just split the array into N chunks.
-
 function getOffsets(i: number, shape: number[], stridesA: number[], stridesB: number[]) {
   let idx = i;
   let offsetA = 0;
@@ -103,7 +100,6 @@ export function div(
   }
 }
 
-// Unary ops
 export function relu(
   a: Float32Array,
   out: Float32Array,
@@ -113,7 +109,6 @@ export function relu(
   strides?: number[],
 ) {
   if (shape && strides) {
-    // strided access: map flat output index -> input offset
     for (let i = start; i < end; i++) {
       let idx = i;
       let inputOffset = 0;
@@ -187,13 +182,12 @@ export function log(
 }
 
 export function fill(out: Float32Array, val: number, start: number, end: number) {
-  // Native fill is faster, but we need to respect the range
   out.fill(val, start, end);
 }
 
 export function randn(out: Float32Array, start: number, end: number) {
   for (let i = start; i < end; i++) {
-    // Box-Muller transform for Gaussian distribution
+    // Box-Muller transform
     const u = 1 - Math.random();
     const v = Math.random();
     out[i] = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
@@ -214,9 +208,7 @@ export function materialize(
   shape: number[],
   strides: number[],
 ) {
-  // Convert non-contiguous tensor to contiguous
   for (let i = start; i < end; i++) {
-    // Map flat output index to strided input offset
     let inputOffset = 0;
     let idx = i;
     for (let dim = shape.length - 1; dim >= 0; dim--) {
@@ -290,14 +282,13 @@ export function tanh_backward(
   start: number,
   end: number,
 ) {
-  // output is tanh(input); derivative = 1 - output^2
+  // derivative of tanh: 1 - output^2
   for (let i = start; i < end; i++) {
     const o = output[i];
     gradInput[i] = gradOutput[i] * (1 - o * o);
   }
 }
 
-// Softmax optimized for 2D tensors on the last axis (rows are independent)
 export function softmax2d(
   input: Float32Array,
   out: Float32Array,
@@ -319,7 +310,6 @@ export function softmax2d(
       out[base + c] = e;
       sum += e;
     }
-    // normalize
     if (sum !== 0) {
       const inv = 1.0 / sum;
       for (let c = 0; c < n; c++) out[base + c] = out[base + c] * inv;

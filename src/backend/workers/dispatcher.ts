@@ -8,51 +8,40 @@ import {
 export class WorkerDispatcher {
   private coordinator: TypedWorker<CoordinatorRequest, CoordinatorResponse> | null = null;
   private sab: SharedArrayBuffer | null = null;
-  private computeWorkers: Worker[] = []; // We don't talk to these directly much
+  private computeWorkers: Worker[] = [];
   private callbacks = new Map<string, (data: any) => void>();
   private tensorIdCounter = 0;
 
   async init(threadCount = 4, memorySizeMB = 256): Promise<void> {
-    if (this.coordinator) return; // Already initialized
+    if (this.coordinator) return;
 
-    // Create SharedArrayBuffer
     const sab = new SharedArrayBuffer(1024 * 1024 * memorySizeMB);
     this.sab = sab;
 
-    // 1. Spawn Coordinator
-    // Vite handles this correctly if we point to the TS file
     const coordWorker = new Worker(new URL("./worker.ts", import.meta.url), {
       type: "module",
     });
     this.coordinator = new TypedWorker(coordWorker);
     this.setupWorkerHandler(this.coordinator, "Coordinator");
 
-    // 2. Spawn Compute Workers and establish channels
     for (let i = 0; i < threadCount; i++) {
       const worker = new Worker(new URL("./worker.ts", import.meta.url), {
         type: "module",
       });
       this.computeWorkers.push(worker);
 
-      // We don't necessarily need to listen to compute workers in the main thread
-      // unless we want to catch errors.
       worker.onerror = (err) => console.error(`Compute-${i} System Error:`, err);
 
-      // Create a direct channel between Coordinator and this Compute Worker
       const channel = new MessageChannel();
 
-      // Send port1 to Coordinator
       this.coordinator.postMessage(
         {
           type: "ADD_WORKER",
           payload: { workerId: i },
         },
         [channel.port1],
-      ); // Transfer ownership
+      );
 
-      // Send port2 to Compute Worker
-      // We manually post here because ComputeRequest is for the internal channel,
-      // but INIT_WORKER is special as it comes from Main
       const initMsg: ComputeRequest = {
         type: "INIT_WORKER",
         payload: {
@@ -64,7 +53,6 @@ export class WorkerDispatcher {
       worker.postMessage(initMsg, [channel.port2]);
     }
 
-    // 3. Initialize Coordinator with SAB
     return new Promise((resolve) => {
       const reqId = this.generateId();
       this.callbacks.set(reqId, () => resolve());
@@ -80,12 +68,11 @@ export class WorkerDispatcher {
     });
   }
 
-  // Shutdown coordinator and compute workers, allowing re-initialization.
   shutdown(): void {
     try {
       if (this.coordinator) {
         this.coordinator.terminate();
-        this.coordinator = null as any;
+        this.coordinator = null;
       }
     } catch (e) {
       console.warn("Error terminating coordinator:", e);
@@ -129,12 +116,9 @@ export class WorkerDispatcher {
     });
   }
 
-  // Generate a unique ID for a new tensor
   nextTensorId(): string {
     return `t_${this.tensorIdCounter++}`;
   }
-
-  // --- Commands (Sent to Coordinator) ---
 
   allocate(tensorId: string, size: number): void {
     this.postToCoordinator({

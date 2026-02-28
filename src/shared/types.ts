@@ -62,7 +62,7 @@ export class TypedWorker<Req, Res> {
   }
 
   postMessage(message: Req, transfer?: Transferable[]) {
-    this.worker.postMessage(message, transfer || []);
+    this.worker.postMessage(message, transfer ?? []);
   }
 
   onMessage(handler: (data: Res) => void) {
@@ -91,7 +91,7 @@ export class TypedPort<Req, Res> {
   }
 
   postMessage(message: Req, transfer?: Transferable[]) {
-    this.port.postMessage(message, transfer || []);
+    this.port.postMessage(message, transfer ?? []);
   }
 
   onMessage(handler: (data: Res) => void) {
