@@ -2,6 +2,34 @@ import { getDispatcher, isDispatcherReady } from "./dispatcher";
 import type { OpParams } from "../shared/types";
 type NestedArray = number | NestedArray[];
 
+function inferShape(arr: NestedArray | Float32Array): number[] {
+  if (arr instanceof Float32Array) return [arr.length];
+  if (!Array.isArray(arr)) return [];
+  const dims: number[] = [];
+  let curr: NestedArray = arr;
+  while (Array.isArray(curr)) {
+    dims.push(curr.length);
+    curr = curr[0];
+  }
+  return dims;
+}
+
+function countElements(arr: NestedArray): number {
+  if (!Array.isArray(arr)) return 1;
+  let total = 0;
+  for (const el of arr) total += countElements(el);
+  return total;
+}
+
+function flattenInto(arr: NestedArray, out: Float32Array, offset: number): number {
+  if (!Array.isArray(arr)) {
+    out[offset] = arr;
+    return offset + 1;
+  }
+  for (const el of arr) offset = flattenInto(el, out, offset);
+  return offset;
+}
+
 // Automatic memory management — silently skips if dispatcher is shut down,
 // since GC may fire after shutdown.
 const registry = new FinalizationRegistry((id: string) => {
@@ -196,56 +224,17 @@ export class Tensor {
     shape?: number[],
     requiresGrad = false,
   ): Tensor {
-    // Robust shape inference and efficient flattening.
-    function inferShape(arr: NestedArray | Float32Array): number[] {
-      if (arr instanceof Float32Array) return [arr.length];
-      if (!Array.isArray(arr)) return [];
-      const shape: number[] = [];
-      let curr: NestedArray = arr;
-      while (Array.isArray(curr)) {
-        shape.push(curr.length);
-        curr = curr[0];
-      }
-      return shape;
-    }
+    const finalShape = shape ?? inferShape(data);
 
-    function flattenInto(arr: NestedArray | Float32Array, out: number[]) {
-      if (arr instanceof Float32Array) {
-        for (const val of arr) out.push(val);
-        return;
-      }
-      if (!Array.isArray(arr)) {
-        out.push(arr);
-        return;
-      }
-      for (const el of arr) flattenInto(el, out);
-    }
-
-    let inferredShape = shape;
     let typedData: Float32Array;
-
-    if (inferredShape === undefined) {
-      inferredShape = inferShape(data);
-      if (data instanceof Float32Array) {
-        // Use external Float32Array directly; worker will copy into SharedArrayBuffer
-        typedData = data;
-      } else {
-        const flat: number[] = [];
-        flattenInto(data, flat);
-        typedData = new Float32Array(flat);
-      }
+    if (data instanceof Float32Array) {
+      typedData = data;
     } else {
-      if (data instanceof Float32Array) {
-        // Use external Float32Array directly; worker will copy into SharedArrayBuffer
-        typedData = data;
-      } else {
-        const flat: number[] = [];
-        flattenInto(data, flat);
-        typedData = new Float32Array(flat);
-      }
+      const n = countElements(data);
+      typedData = new Float32Array(n);
+      flattenInto(data, typedData, 0);
     }
 
-    const finalShape = inferredShape as number[];
     const size = finalShape.reduce((a, b) => a * b, 1) * 4;
     const id = getDispatcher().nextTensorId();
 
