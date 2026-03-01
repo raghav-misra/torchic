@@ -1,4 +1,5 @@
 import { dispatcher } from "./dispatcher";
+import type { OpParams } from "../shared/types";
 type NestedArray = number | NestedArray[];
 
 // Automatic memory management
@@ -38,19 +39,7 @@ export async function trackTensors<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export interface OpParams {
-  axis?: number;
-  keepDim?: boolean;
-  m?: number;
-  n?: number;
-  k?: number;
-  value?: number;
-  shape?: number[];
-  strides?: number[];
-  stridesA?: number[];
-  stridesB?: number[];
-  embeddingDim?: number;
-}
+export type { OpParams } from "../shared/types";
 
 export class Tensor {
   id: string;
@@ -206,11 +195,11 @@ export class Tensor {
     requiresGrad = false,
   ): Tensor {
     // Robust shape inference and efficient flattening.
-    function inferShape(arr: any): number[] {
+    function inferShape(arr: NestedArray | Float32Array): number[] {
       if (arr instanceof Float32Array) return [arr.length];
       if (!Array.isArray(arr)) return [];
       const shape: number[] = [];
-      let curr = arr;
+      let curr: NestedArray = arr;
       while (Array.isArray(curr)) {
         shape.push(curr.length);
         curr = curr[0];
@@ -218,13 +207,13 @@ export class Tensor {
       return shape;
     }
 
-    function flattenInto(arr: any, out: number[]) {
+    function flattenInto(arr: NestedArray | Float32Array, out: number[]) {
       if (arr instanceof Float32Array) {
         for (const val of arr) out.push(val);
         return;
       }
       if (!Array.isArray(arr)) {
-        out.push(arr as number);
+        out.push(arr);
         return;
       }
       for (const el of arr) flattenInto(el, out);

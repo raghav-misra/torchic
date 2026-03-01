@@ -5,9 +5,15 @@ import * as transpose from "./kernels/transpose";
 import * as reductions from "./kernels/reductions";
 import * as embedding from "./kernels/embedding";
 import { defineWorkerOnMessage } from "../../shared/utils";
+import type { OpParams, BufferRegion } from "../../shared/types";
 import { CoordinatorRequest, ComputeRequest, ComputeResponse, TypedPort } from "../../shared/types";
 
 type WorkerRole = "COORDINATOR" | "COMPUTE";
+
+function required<T>(val: T | undefined, name: string): T {
+  if (val === undefined) throw new Error(`Missing required param: ${name}`);
+  return val;
+}
 
 interface TensorMetadata {
   offset: number;
@@ -95,7 +101,7 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((dat
       })
       .catch((err) => {
         console.error("Coordinator Error:", err);
-        const reqId = (req as any).id;
+        const reqId = "id" in req ? (req as { id: string }).id : undefined;
         if (reqId) {
           self.postMessage({ id: reqId, error: err.message });
         }
@@ -127,8 +133,8 @@ function handleAlloc(payload: { id: string; size: number }) {
       size: payload.size,
       isView: false,
     });
-  } catch (e: any) {
-    console.error("Allocation failed:", e.message);
+  } catch (e: unknown) {
+    console.error("Allocation failed:", e instanceof Error ? e.message : e);
   }
 }
 
@@ -178,7 +184,7 @@ function handleWrite(payload: { id: string; data: Float32Array }) {
 }
 
 async function handleOp(
-  payload: { op: string; inputs: string[]; output: string; params: any },
+  payload: { op: string; inputs: string[]; output: string; params: OpParams },
   reqId?: string,
 ) {
   const inputMetas = payload.inputs.map((id) => tensorRegistry.get(id));
@@ -350,9 +356,9 @@ function setupComputeWorker(port: TypedPort<ComputeResponse, ComputeRequest>) {
 
 function executeKernel(
   op: string,
-  inputs: any[],
-  output: any,
-  params: any,
+  inputs: BufferRegion[],
+  output: BufferRegion,
+  params: OpParams,
   workerIndex: number,
   totalWorkers: number,
 ) {
@@ -362,7 +368,9 @@ function executeKernel(
   const outputView = new Float32Array(buffer!, output.offset, output.size / 4);
 
   if (op === "MATMUL") {
-    const { m, n, k } = params;
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const k = required(params.k, "k");
     const rowsPerWorker = Math.ceil(m / totalWorkers);
     const startRow = workerIndex * rowsPerWorker;
     const endRow = Math.min(startRow + rowsPerWorker, m);
@@ -385,7 +393,8 @@ function executeKernel(
   }
 
   if (op === "SOFTMAX") {
-    const { m, n } = params;
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
     const rowsPerWorker = Math.ceil(m / totalWorkers);
     const startRow = workerIndex * rowsPerWorker;
     const endRow = Math.min(startRow + rowsPerWorker, m);
@@ -397,7 +406,8 @@ function executeKernel(
   }
 
   if (op === "SOFTMAX_BACKWARD") {
-    const { m, n } = params;
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
     const rowsPerWorker = Math.ceil(m / totalWorkers);
     const startRow = workerIndex * rowsPerWorker;
     const endRow = Math.min(startRow + rowsPerWorker, m);
@@ -417,7 +427,8 @@ function executeKernel(
   }
 
   if (op === "TRANSPOSE") {
-    const { m, n } = params;
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
     const rowsPerWorker = Math.ceil(n / totalWorkers);
     const startRow = workerIndex * rowsPerWorker;
     const endRow = Math.min(startRow + rowsPerWorker, n);
@@ -429,21 +440,22 @@ function executeKernel(
   }
 
   if (op === "SUM_PARTIAL") {
+    const outIndex = required(params.outIndex, "outIndex");
     const totalElements = inputViews[0].length;
     const chunkSize = Math.ceil(totalElements / totalWorkers);
     const start = workerIndex * chunkSize;
     const end = Math.min(start + chunkSize, totalElements);
 
     if (start < totalElements) {
-      reductions.sum_partial(inputViews[0], outputView, params.outIndex, start, end);
+      reductions.sum_partial(inputViews[0], outputView, outIndex, start, end);
     } else {
-      outputView[params.outIndex] = 0;
+      outputView[outIndex] = 0;
     }
     return;
   }
 
   if (op === "SUM_FINAL") {
-    reductions.sum_final(inputViews[0], outputView, params.n);
+    reductions.sum_final(inputViews[0], outputView, required(params.n, "n"));
     return;
   }
 
@@ -530,7 +542,7 @@ function executeKernel(
       elementwise.log(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
     case "FILL":
-      elementwise.fill(outputView, params.value, start, end);
+      elementwise.fill(outputView, required(params.value, "value"), start, end);
       break;
     case "RANDN":
       elementwise.randn(outputView, start, end);
@@ -541,9 +553,9 @@ function executeKernel(
         outputView,
         start,
         end,
-        params.shape,
-        params.strides,
-        params.axis,
+        required(params.shape, "shape"),
+        required(params.strides, "strides"),
+        required(params.axis, "axis"),
       );
       break;
     case "ADD_SCALAR_TENSOR":
@@ -553,14 +565,14 @@ function executeKernel(
       elementwise.copy(inputViews[0], outputView, start, end);
       break;
     case "MATERIALIZE":
-      elementwise.materialize(inputViews[0], outputView, start, end, params.shape, params.strides);
+      elementwise.materialize(inputViews[0], outputView, start, end, required(params.shape, "shape"), required(params.strides, "strides"));
       break;
     case "EMBEDDING":
       embedding.embedding(
         inputViews[0],
         inputViews[1],
         outputView,
-        params.embeddingDim,
+        required(params.embeddingDim, "embeddingDim"),
         start,
         end,
       );
@@ -570,7 +582,7 @@ function executeKernel(
         outputView,
         inputViews[0],
         inputViews[1],
-        params.embeddingDim,
+        required(params.embeddingDim, "embeddingDim"),
         start,
         end,
       );

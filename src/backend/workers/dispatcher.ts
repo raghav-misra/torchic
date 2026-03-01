@@ -1,3 +1,4 @@
+import type { OpParams, CoordinatorResponseData } from "../../shared/types";
 import {
   TypedWorker,
   CoordinatorRequest,
@@ -9,7 +10,7 @@ export class WorkerDispatcher {
   private coordinator: TypedWorker<CoordinatorRequest, CoordinatorResponse> | null = null;
   private sab: SharedArrayBuffer | null = null;
   private computeWorkers: Worker[] = [];
-  private callbacks = new Map<string, (data: any) => void>();
+  private callbacks = new Map<string, (data: CoordinatorResponseData) => void>();
   private tensorIdCounter = 0;
 
   async init(threadCount = 4, memorySizeMB = 256): Promise<void> {
@@ -94,7 +95,7 @@ export class WorkerDispatcher {
     this.tensorIdCounter = 0;
   }
 
-  private setupWorkerHandler(worker: TypedWorker<any, CoordinatorResponse>, name: string) {
+  private setupWorkerHandler(worker: TypedWorker<CoordinatorRequest, CoordinatorResponse>, name: string) {
     worker.onMessage((data) => {
       const { id, data: responseData, error } = data;
 
@@ -141,7 +142,7 @@ export class WorkerDispatcher {
     });
   }
 
-  runOp(op: string, inputs: string[], output: string, params: any = {}): void {
+  runOp(op: string, inputs: string[], output: string, params: OpParams = {}): void {
     this.postToCoordinator({
       type: "OP",
       payload: { op, inputs, output, params },
@@ -166,7 +167,7 @@ export class WorkerDispatcher {
     return new Promise((resolve) => {
       const reqId = this.generateId();
       this.callbacks.set(reqId, (data) => {
-        resolve(data.data);
+        resolve((data as { data: Float32Array }).data);
       });
 
       this.postToCoordinator({
@@ -188,7 +189,7 @@ export class WorkerDispatcher {
     return new Promise((resolve) => {
       const reqId = this.generateId();
       this.callbacks.set(reqId, (data) => {
-        const { offset, size } = data;
+        const { offset, size } = data as { offset: number; size: number };
         const view = new Float32Array(this.sab!, offset, size / 4);
         resolve(view);
       });
@@ -205,7 +206,7 @@ export class WorkerDispatcher {
     return new Promise((resolve) => {
       const reqId = this.generateId();
       this.callbacks.set(reqId, (data) => {
-        resolve(data.value);
+        resolve((data as { value: number }).value);
       });
 
       this.postToCoordinator({

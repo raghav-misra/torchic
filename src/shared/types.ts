@@ -1,5 +1,31 @@
 export type TensorId = string;
 
+export interface OpParams {
+  axis?: number;
+  keepDim?: boolean;
+  m?: number;
+  n?: number;
+  k?: number;
+  value?: number;
+  shape?: number[];
+  strides?: number[];
+  stridesA?: number[];
+  stridesB?: number[];
+  embeddingDim?: number;
+  outIndex?: number;
+}
+
+export interface BufferRegion {
+  offset: number;
+  size: number;
+}
+
+export type CoordinatorResponseData =
+  | { status: string }
+  | { data: Float32Array }
+  | { offset: number; size: number }
+  | { value: number };
+
 export type CoordinatorRequest =
   | {
       type: "INIT_COORDINATOR";
@@ -15,7 +41,7 @@ export type CoordinatorRequest =
   | {
       type: "OP";
       id?: string;
-      payload: { op: string; inputs: TensorId[]; output: TensorId; params?: any };
+      payload: { op: string; inputs: TensorId[]; output: TensorId; params?: OpParams };
     }
   | { type: "READ"; id: string; payload: { id: TensorId } }
   | { type: "READ_VIEW"; id: string; payload: { id: TensorId } }
@@ -23,7 +49,7 @@ export type CoordinatorRequest =
 
 export interface CoordinatorResponse {
   id: string;
-  data: any;
+  data: CoordinatorResponseData;
   error?: string;
 }
 
@@ -36,9 +62,9 @@ export type ComputeRequest =
       type: "EXECUTE_TASK";
       taskId: string;
       op: string;
-      inputs: { offset: number; size: number }[];
-      output: { offset: number; size: number };
-      params: any;
+      inputs: BufferRegion[];
+      output: BufferRegion;
+      params: OpParams;
       workerIndex: number;
       totalWorkers: number;
     };
