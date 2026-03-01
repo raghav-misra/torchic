@@ -1,7 +1,5 @@
 export type TensorId = string;
 
-// --- Main Thread <-> Coordinator ---
-
 export type CoordinatorRequest =
   | {
       type: "INIT_COORDINATOR";
@@ -29,8 +27,6 @@ export interface CoordinatorResponse {
   error?: string;
 }
 
-// --- Coordinator <-> Compute Worker ---
-
 export type ComputeRequest =
   | {
       type: "INIT_WORKER";
@@ -51,8 +47,6 @@ export interface ComputeResponse {
   type: "TASK_DONE";
   taskId: string;
 }
-
-// --- Typed Wrapper ---
 
 export class TypedWorker<Req, Res> {
   private worker: Worker;
@@ -77,7 +71,6 @@ export class TypedWorker<Req, Res> {
     this.worker.terminate();
   }
 
-  // Expose raw worker if needed (e.g. for addEventListener)
   get raw(): Worker {
     return this.worker;
   }

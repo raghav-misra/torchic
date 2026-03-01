@@ -12,6 +12,7 @@ We have a zero-tolerance policy for noise. With the rise of AI-assisted coding, 
 
 - **Ban "LLM Fluff":** Never comment the obvious. If a comment simply restates the code in English, delete it.
 - **The "Why", Not the "What":** Comments are strictly reserved for explaining _why_ a decision was made, documenting weird edge cases, or explaining complex business logic/math.
+- **No Spacer Comments:** Do not use decorative section dividers like `// --- Foo ---`, `// === Bar ===`, `// Types`, `// Helpers`, etc. If your file needs headings to be navigable, it's too long — split it into smaller modules. Let the code's structure speak for itself.
 - **JSDoc is for Public APIs Only:** Do not pollute internal functions, types, or utilities with massive JSDoc blocks. Use them exclusively for exports that consumers of the library will interact with.
 
 **Bad:**

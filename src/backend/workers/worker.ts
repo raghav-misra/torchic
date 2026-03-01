@@ -7,7 +7,6 @@ import * as embedding from "./kernels/embedding";
 import { defineWorkerOnMessage } from "../../shared/utils";
 import { CoordinatorRequest, ComputeRequest, ComputeResponse, TypedPort } from "../../shared/types";
 
-// Types
 type WorkerRole = "COORDINATOR" | "COMPUTE";
 
 interface TensorMetadata {
@@ -16,21 +15,16 @@ interface TensorMetadata {
   isView: boolean;
 }
 
-// Global State
 let role: WorkerRole = "COORDINATOR";
 let memoryAllocator: MemoryAllocator | null = null;
 let buffer: SharedArrayBuffer | null = null;
 const tensorRegistry = new Map<string, TensorMetadata>();
 
-// Coordinator State
 const computePorts: TypedPort<ComputeRequest, ComputeResponse>[] = [];
 const pendingTasks = new Map<string, { resolve: () => void; count: number }>();
 let commandQueue = Promise.resolve();
 
-// Compute State
 let coordinatorPort: TypedPort<ComputeResponse, ComputeRequest> | null = null;
-
-// --- Message Handlers ---
 
 self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((data, ports) => {
   const { type } = data;
@@ -108,8 +102,6 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((dat
       });
   }
 });
-
-// --- Coordinator Logic ---
 
 function setupCoordinatorPort(port: TypedPort<ComputeRequest, ComputeResponse>) {
   port.onMessage((data) => {
@@ -339,8 +331,6 @@ function handleReadValue(payload: { id: string; offset: number }, reqId: string)
     data: { value },
   });
 }
-
-// --- Compute Logic ---
 
 function setupComputeWorker(port: TypedPort<ComputeResponse, ComputeRequest>) {
   port.onMessage((data) => {

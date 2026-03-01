@@ -6,12 +6,10 @@ const registry = new FinalizationRegistry((id: string) => {
   dispatcher!.free(id);
 });
 
-// Global state for gradient computation
 export const GradMode = {
   enabled: true,
 };
 
-// Global state for manual memory management tracking
 let _activeTracking: Set<Tensor> | null = null;
 
 export async function noGrad<T>(fn: () => Promise<T>): Promise<T> {
@@ -301,8 +299,6 @@ export class Tensor {
     return new Tensor(id, shape, requiresGrad);
   }
 
-  // --- Operations ---
-
   add(other: Tensor): Tensor {
     return this.runBinaryOp("ADD", other);
   }
@@ -442,8 +438,6 @@ export class Tensor {
     return out;
   }
 
-  // --- Data Access ---
-
   toArray(clone = true): Promise<Float32Array> {
     const tensor = this.materialize();
     return clone ? dispatcher!.read(tensor.id) : dispatcher!.readView(tensor.id);
@@ -453,8 +447,6 @@ export class Tensor {
     const arr = await this.toArray();
     return arr[0];
   }
-
-  // --- Autograd ---
 
   withGrad(): Tensor {
     this.enableGrad();
@@ -747,8 +739,6 @@ export class Tensor {
     return exp.div(sumExp);
   }
 
-  // --- In-Place Operations ---
-
   add_(other: Tensor): Tensor {
     this.runBinaryOpInPlace("ADD", other);
     return this;
@@ -791,8 +781,6 @@ export class Tensor {
       stridesB,
     });
   }
-
-  // --- Internal Helpers ---
 
   private runBinaryOp(op: string, other: Tensor): Tensor {
     const outShape = Tensor.broadcastShapes(this.shape, other.shape);

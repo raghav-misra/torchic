@@ -16,7 +16,6 @@ function randFloat32(n: number, seed = 42) {
   return r;
 }
 
-// Helper to compute strides for row-major shape
 function rowMajorStrides(shape: number[]) {
   const strides = new Array(shape.length);
   let s = 1;

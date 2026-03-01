@@ -1,6 +1,5 @@
-import { Tensor, trackTensors, crossEntropy, noGrad } from "../src/index";
+import { Tensor, trackTensors, crossEntropy, noGrad, init } from "../src/index";
 
-// --- Helpers ---------------------------------------------------------------
 function buildVocab(chars: string) {
   const stoi: Record<string, number> = {};
   const itos: Record<number, string> = {};
@@ -84,7 +83,6 @@ function createModel(
   return { Wembed, Whidden, bhidden, Wout, bout, parameters, learningRate };
 }
 
-// helper to sample index from probs Float32Array
 function sampleFromProbArray(arr: Float32Array) {
   let sum = 0;
   for (const val of arr) sum += val;
@@ -96,7 +94,50 @@ function sampleFromProbArray(arr: Float32Array) {
   return arr.length - 1;
 }
 
-// --- Main -----------------------------------------------------------------
+enum TrainState {
+  Running,
+  Paused,
+  Stopped,
+}
+let trainState = TrainState.Running;
+let resumeResolve: (() => void) | null = null;
+
+function waitForResume(): Promise<void> {
+  return new Promise((resolve) => {
+    resumeResolve = resolve;
+  });
+}
+
+// Separate function so TS control-flow analysis can't narrow across await boundaries
+function isStopped(): boolean {
+  return trainState === TrainState.Stopped;
+}
+
+(window as any).pause = () => {
+  if (trainState !== TrainState.Running) return console.log("Can't pause — not running.");
+  trainState = TrainState.Paused;
+  console.log("⏸ Training paused. Use resume() to continue, or sample() to generate names.");
+};
+
+(window as any).resume = () => {
+  if (trainState !== TrainState.Paused) return console.log("Can't resume — not paused.");
+  trainState = TrainState.Running;
+  resumeResolve?.();
+  resumeResolve = null;
+  console.log("▶ Training resumed.");
+};
+
+(window as any).stop = () => {
+  if (trainState === TrainState.Stopped) return console.log("Already stopped.");
+  const wasPaused = trainState === TrainState.Paused;
+  trainState = TrainState.Stopped;
+  if (wasPaused) {
+    resumeResolve?.();
+    resumeResolve = null;
+  }
+  console.log("⏹ Training stopped.");
+};
+
 async function makemoreMLP() {
   const names = await fetch("https://raw.githubusercontent.com/karpathy/makemore/master/names.txt")
     .then((res) => res.text())
@@ -125,7 +166,7 @@ async function makemoreMLP() {
   const { Xarray, Yarray } = buildDataset(names, stoi, blockSize);
 
   // Initialize dispatcher with auto-chosen threads and estimated memory (MB)
-  await Tensor.init(threads, estimatedMB);
+  await init({ backend: "workers", threadCount: threads, memorySizeMB: estimatedMB });
 
   // Avoid creating full-dataset Tensors to reduce memory pressure.
   // Batches are created from the JS arrays (`Xarray`, `Yarray`) on-the-fly.
@@ -144,10 +185,40 @@ async function makemoreMLP() {
     lrConfig.initial,
   );
 
-  // JS-side current lr value (we update the scalar Tensor each schedule step)
-  let lrValue = lrConfig.initial;
+  async function sampleNames(count = 10) {
+    await noGrad(async () => {
+      for (let sampleIdx = 0; sampleIdx < count; sampleIdx++) {
+        const context = new Array(blockSize).fill(".");
+        let generated = "";
 
-  // Training loop (minibatches) with shuffling per epoch
+        while (true) {
+          const probsArr: Float32Array = await trackTensors(async () => {
+            const Xctx = Tensor.fromData([context.map((c) => stoi[c])]);
+            const emb = Wembed.embedding(Xctx);
+            const embFlat = emb.reshape([1, blockSize * embeddingDims]);
+            const hidden = embFlat.matmul(Whidden).add(bhidden).tanh();
+            const logits = hidden.matmul(Wout).add(bout);
+            const probs = logits.softmax(-1);
+            return await probs.toArray();
+          });
+
+          const ix = sampleFromProbArray(probsArr);
+          const ch = itos[ix];
+          if (ch === ".") break;
+          generated += ch;
+
+          context.shift();
+          context.push(ch);
+        }
+
+        console.log(`Sample ${sampleIdx + 1}: ${generated}`);
+      }
+    });
+  }
+
+  (window as any).sample = (n = 10) => sampleNames(n);
+
+  let lrValue = lrConfig.initial;
   const stepTimes: number[] = [];
   let windowSum = 0; // ms sum of last up to 100 steps
 
@@ -171,12 +242,16 @@ async function makemoreMLP() {
   const flatY = new Float32Array(batchSize);
 
   for (let epoch = 0; epoch < numEpochs; epoch++) {
+    if (trainState === TrainState.Stopped) break;
     shuffleInPlace(indices);
     let epochLossSum = 0;
     let epochStepCount = 0;
 
     for (let pos = 0; pos < datasetSize; pos += batchSize) {
-      // decay learning rate on schedule (based on globalStep)
+      if (isStopped()) break;
+      if (trainState === TrainState.Paused) await waitForResume();
+      if (isStopped()) break;
+
       const batchIdx = indices.slice(pos, pos + batchSize);
       const B = batchIdx.length;
 
@@ -265,39 +340,14 @@ async function makemoreMLP() {
     }
   }
 
-  // --- Inference: generate 10 names starting from context "..." ---
-  console.log("Starting inference (10 samples)");
+  if (trainState === TrainState.Stopped) {
+    console.log("Training was stopped early.");
+  } else {
+    console.log("Training complete. Generating 10 samples...");
+    await sampleNames(10);
+  }
 
-  await noGrad(async () => {
-    for (let sampleIdx = 0; sampleIdx < 10; sampleIdx++) {
-      const context = new Array(blockSize).fill(".");
-      let generated = "";
-
-      while (true) {
-        // build input tensor and run forward inside trackTensors so temps get disposed
-        const probsArr: Float32Array = await trackTensors(async () => {
-          const Xctx = Tensor.fromData([context.map((c) => stoi[c])]); // shape [1, B]
-          const emb = Wembed.embedding(Xctx);
-          const embFlat = emb.reshape([1, blockSize * embeddingDims]);
-          const hidden = embFlat.matmul(Whidden).add(bhidden).relu();
-          const logits = hidden.matmul(Wout).add(bout);
-          const probs = logits.softmax(-1);
-          return await probs.toArray();
-        });
-
-        const ix = sampleFromProbArray(probsArr);
-        const ch = itos[ix];
-        if (ch === ".") break;
-        generated += ch;
-
-        // advance context
-        context.shift();
-        context.push(ch);
-      }
-
-      console.log(`Sample ${sampleIdx + 1}: ${generated}`);
-    }
-  });
+  console.log("Globals available: pause(), resume(), stop(), sample(n?)");
 }
 
 makemoreMLP();
