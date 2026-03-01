@@ -92,6 +92,7 @@ enum TrainState {
   Paused,
   Stopped,
 }
+
 let trainState = TrainState.Running;
 let resumeResolve: (() => void) | null = null;
 
