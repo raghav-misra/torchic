@@ -1,8 +1,8 @@
 import { getDispatcher, isDispatcherReady } from "./dispatcher";
 import type { OpParams } from "../shared/types";
-type NestedArray = number | NestedArray[];
+export type NestedArray = number | NestedArray[];
 
-function inferShape(arr: NestedArray | Float32Array): number[] {
+export function inferShape(arr: NestedArray | Float32Array): number[] {
   if (arr instanceof Float32Array) return [arr.length];
   if (!Array.isArray(arr)) return [];
   const dims: number[] = [];
@@ -14,14 +14,14 @@ function inferShape(arr: NestedArray | Float32Array): number[] {
   return dims;
 }
 
-function countElements(arr: NestedArray): number {
+export function countElements(arr: NestedArray): number {
   if (!Array.isArray(arr)) return 1;
   let total = 0;
   for (const el of arr) total += countElements(el);
   return total;
 }
 
-function flattenInto(arr: NestedArray, out: Float32Array, offset: number): number {
+export function flattenInto(arr: NestedArray, out: Float32Array, offset: number): number {
   if (!Array.isArray(arr)) {
     out[offset] = arr;
     return offset + 1;
