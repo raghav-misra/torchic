@@ -195,6 +195,10 @@ async function handleOp(
     return;
   }
 
+  // Type narrowing: the guard above ensures all entries are defined
+  const inputs = inputMetas as TensorMetadata[];
+  const output = outputMeta;
+
   const numWorkers = computePorts.length;
 
   // SUM: two-phase reduce (partial sums -> final sum)
@@ -214,7 +218,7 @@ async function handleOp(
         type: "EXECUTE_TASK",
         taskId: taskId1,
         op: "SUM_PARTIAL",
-        inputs: [{ offset: inputMetas[0]!.offset, size: inputMetas[0]!.size }],
+        inputs: [{ offset: inputs[0].offset, size: inputs[0].size }],
         output: { offset: tempOffset, size: tempSize },
         params: { outIndex: index },
         workerIndex: index,
@@ -234,7 +238,7 @@ async function handleOp(
       taskId: taskId2,
       op: "SUM_FINAL",
       inputs: [{ offset: tempOffset, size: tempSize }],
-      output: { offset: outputMeta!.offset, size: outputMeta!.size },
+      output: { offset: output.offset, size: output.size },
       params: { n: numWorkers },
       workerIndex: 0,
       totalWorkers: 1,
@@ -261,8 +265,8 @@ async function handleOp(
       type: "EXECUTE_TASK",
       taskId,
       op: payload.op,
-      inputs: inputMetas.map((m) => ({ offset: m!.offset, size: m!.size })),
-      output: { offset: outputMeta!.offset, size: outputMeta!.size },
+      inputs: inputs.map((m) => ({ offset: m.offset, size: m.size })),
+      output: { offset: output.offset, size: output.size },
       params: payload.params,
       workerIndex: 0,
       totalWorkers: 1,
@@ -284,8 +288,8 @@ async function handleOp(
       type: "EXECUTE_TASK",
       taskId,
       op: payload.op,
-      inputs: inputMetas.map((m) => ({ offset: m!.offset, size: m!.size })),
-      output: { offset: outputMeta!.offset, size: outputMeta!.size },
+      inputs: inputs.map((m) => ({ offset: m.offset, size: m.size })),
+      output: { offset: output.offset, size: output.size },
       params: payload.params,
       workerIndex: index,
       totalWorkers: numWorkers,
@@ -565,7 +569,14 @@ function executeKernel(
       elementwise.copy(inputViews[0], outputView, start, end);
       break;
     case "MATERIALIZE":
-      elementwise.materialize(inputViews[0], outputView, start, end, required(params.shape, "shape"), required(params.strides, "strides"));
+      elementwise.materialize(
+        inputViews[0],
+        outputView,
+        start,
+        end,
+        required(params.shape, "shape"),
+        required(params.strides, "strides"),
+      );
       break;
     case "EMBEDDING":
       embedding.embedding(

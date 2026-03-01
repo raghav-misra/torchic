@@ -54,11 +54,14 @@ export class WorkerDispatcher {
       worker.postMessage(initMsg, [channel.port2]);
     }
 
+    const coordinator = this.coordinator;
+    if (!coordinator) throw new Error("Coordinator not initialized");
+
     return new Promise((resolve) => {
       const reqId = this.generateId();
       this.callbacks.set(reqId, () => resolve());
 
-      this.coordinator!.postMessage({
+      coordinator.postMessage({
         type: "INIT_COORDINATOR",
         id: reqId,
         payload: {
@@ -95,12 +98,16 @@ export class WorkerDispatcher {
     this.tensorIdCounter = 0;
   }
 
-  private setupWorkerHandler(worker: TypedWorker<CoordinatorRequest, CoordinatorResponse>, name: string) {
+  private setupWorkerHandler(
+    worker: TypedWorker<CoordinatorRequest, CoordinatorResponse>,
+    name: string,
+  ) {
     worker.onMessage((data) => {
       const { id, data: responseData, error } = data;
 
       if (id && this.callbacks.has(id)) {
-        const callback = this.callbacks.get(id)!;
+        const callback = this.callbacks.get(id);
+        if (!callback) return;
         if (error) {
           console.error(`${name} Error:`, error);
         } else {
@@ -185,12 +192,13 @@ export class WorkerDispatcher {
    * Note: caller must ensure the tensor is not being concurrently written by workers.
    */
   readView(tensorId: string): Promise<Float32Array> {
-    if (!this.sab) throw new Error("Dispatcher not initialized with SharedArrayBuffer");
+    const sab = this.sab;
+    if (!sab) throw new Error("Dispatcher not initialized with SharedArrayBuffer");
     return new Promise((resolve) => {
       const reqId = this.generateId();
       this.callbacks.set(reqId, (data) => {
         const { offset, size } = data as { offset: number; size: number };
-        const view = new Float32Array(this.sab!, offset, size / 4);
+        const view = new Float32Array(sab, offset, size / 4);
         resolve(view);
       });
 
