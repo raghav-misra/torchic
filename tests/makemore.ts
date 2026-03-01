@@ -17,9 +17,8 @@ function buildDataset(names: string[], stoi: Record<string, number>, blockSize: 
   for (const word of names) {
     const context = new Array(blockSize).fill(".");
     for (const char of word + ".") {
-      const ix = stoi[char];
       Xarray.push(context.map((c) => stoi[c]));
-      Yarray.push(ix);
+      Yarray.push(stoi[char]);
       context.shift();
       context.push(char);
     }
@@ -35,26 +34,20 @@ function estimateMemoryMB(
   batchSize: number,
   hiddenSize: number,
 ) {
-  // loose peak floats: params+grads + batch temps (embeddings, hidden, logits/softmax)
   const params =
-    vocabSize * embeddingDims + // Wembed
-    blockSize * embeddingDims * hiddenSize + // Whidden
-    hiddenSize * vocabSize + // Wout
+    vocabSize * embeddingDims +
+    blockSize * embeddingDims * hiddenSize +
+    hiddenSize * vocabSize +
     hiddenSize +
-    vocabSize; // biases
+    vocabSize;
 
   const peakFloats =
     2 * params + batchSize * (blockSize * embeddingDims + hiddenSize + 2 * vocabSize);
-  const estimatedMB = Math.ceil((peakFloats * 4) / (1024 * 1024)) + 8; // add slack
-  return estimatedMB;
+  return Math.ceil((peakFloats * 4) / (1024 * 1024)) + 8;
 }
 
-function detectCores(): number {
-  return navigator?.hardwareConcurrency ?? 4;
-}
-
-function chooseThreadCount(rows: number, minRowsPerThread = 8, maxThreads = 8): number {
-  const cores = detectCores();
+function chooseThreadCount(rows: number, minRowsPerThread = 8, maxThreads = 8) {
+  const cores = navigator?.hardwareConcurrency ?? 4;
   const maxByWork = Math.max(1, Math.floor(rows / Math.max(1, minRowsPerThread)));
   return Math.min(cores, maxByWork, maxThreads);
 }
@@ -108,26 +101,26 @@ function waitForResume(): Promise<void> {
   });
 }
 
-// Separate function so TS control-flow analysis can't narrow across await boundaries
-function isStopped(): boolean {
+// Opaque check so TS control-flow can't narrow across await boundaries
+function isStopped() {
   return trainState === TrainState.Stopped;
 }
 
-(window as any).pause = () => {
+function pause() {
   if (trainState !== TrainState.Running) return console.log("Can't pause — not running.");
   trainState = TrainState.Paused;
-  console.log("⏸ Training paused. Use resume() to continue, or sample() to generate names.");
-};
+  console.log("⏸ Paused. Use __makemore.resume() / __makemore.sample() in the console.");
+}
 
-(window as any).resume = () => {
+function resume() {
   if (trainState !== TrainState.Paused) return console.log("Can't resume — not paused.");
   trainState = TrainState.Running;
   resumeResolve?.();
   resumeResolve = null;
   console.log("▶ Training resumed.");
-};
+}
 
-(window as any).stop = () => {
+function stop() {
   if (trainState === TrainState.Stopped) return console.log("Already stopped.");
   const wasPaused = trainState === TrainState.Paused;
   trainState = TrainState.Stopped;
@@ -136,7 +129,16 @@ function isStopped(): boolean {
     resumeResolve = null;
   }
   console.log("⏹ Training stopped.");
-};
+}
+
+function shuffleInPlace(arr: number[]) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+}
 
 async function makemoreMLP() {
   const names = await fetch("https://raw.githubusercontent.com/karpathy/makemore/master/names.txt")
@@ -148,94 +150,72 @@ async function makemoreMLP() {
   const chars = "abcdefghijklmnopqrstuvwxyz.";
   const { stoi, itos } = buildVocab(chars);
 
-  // hyperparameters
-  const vocabSize = chars.length; // 26 letters + '.'
+  const vocabSize = chars.length;
   const embeddingDims = 10;
   const blockSize = 5;
   const batchSize = 512;
   const hiddenSize = 300;
-  // early stopping threshold (stop when epoch avg loss <= threshold)
   const earlyStopThreshold = 2.3;
+  const numEpochs = 5;
+  const lrDecayRate = 0.95;
+  const initialLR = 0.1;
 
   const estimatedMB = estimateMemoryMB(vocabSize, embeddingDims, blockSize, batchSize, hiddenSize);
-  console.log(`Estimated memory (MB): ${estimatedMB}`);
-
-  const threads = chooseThreadCount(Math.max(1, batchSize));
-  console.log(`Chosen threads: ${threads}`);
+  const threads = chooseThreadCount(batchSize);
+  console.log(`Memory: ${estimatedMB} MB, threads: ${threads}`);
 
   const { Xarray, Yarray } = buildDataset(names, stoi, blockSize);
-
-  // Initialize dispatcher with auto-chosen threads and estimated memory (MB)
   await init({ backend: "workers", threadCount: threads, memorySizeMB: estimatedMB });
 
-  // Avoid creating full-dataset Tensors to reduce memory pressure.
-  // Batches are created from the JS arrays (`Xarray`, `Yarray`) on-the-fly.
-  console.log("Dataset rows (tokens):", Xarray.length);
   const datasetSize = Xarray.length;
-
-  // learning rate schedule config
-  const lrConfig = { initial: 0.1, decayRate: 0.95 };
-  const numEpochs = 5; // run this many full passes over the dataset
+  console.log("Dataset rows:", datasetSize);
 
   const { Wembed, Whidden, bhidden, Wout, bout, parameters, learningRate } = createModel(
     vocabSize,
     embeddingDims,
     blockSize,
     hiddenSize,
-    lrConfig.initial,
+    initialLR,
   );
 
   async function sampleNames(count = 10) {
     await noGrad(async () => {
-      for (let sampleIdx = 0; sampleIdx < count; sampleIdx++) {
+      for (let i = 0; i < count; i++) {
         const context = new Array(blockSize).fill(".");
         let generated = "";
 
         while (true) {
-          const probsArr: Float32Array = await trackTensors(async () => {
+          const probs: Float32Array = await trackTensors(async () => {
             const Xctx = Tensor.fromData([context.map((c) => stoi[c])]);
             const emb = Wembed.embedding(Xctx);
             const embFlat = emb.reshape([1, blockSize * embeddingDims]);
             const hidden = embFlat.matmul(Whidden).add(bhidden).tanh();
             const logits = hidden.matmul(Wout).add(bout);
-            const probs = logits.softmax(-1);
-            return await probs.toArray();
+            return await logits.softmax(-1).toArray();
           });
 
-          const ix = sampleFromProbArray(probsArr);
+          const ix = sampleFromProbArray(probs);
           const ch = itos[ix];
           if (ch === ".") break;
           generated += ch;
-
           context.shift();
           context.push(ch);
         }
 
-        console.log(`Sample ${sampleIdx + 1}: ${generated}`);
+        console.log(`Sample ${i + 1}: ${generated}`);
       }
     });
   }
 
-  (window as any).sample = (n = 10) => sampleNames(n);
+  // @ts-expect-error Expose sampleNames for console access
+  window.__makemore = { pause, resume, stop, sample: (n = 10) => sampleNames(n) };
 
-  let lrValue = lrConfig.initial;
+  let lrValue = initialLR;
   const stepTimes: number[] = [];
-  let windowSum = 0; // ms sum of last up to 100 steps
-
-  // build indices and shuffle helper
+  let windowSum = 0;
   const indices = Array.from({ length: datasetSize }, (_, i) => i);
-  function shuffleInPlace(arr: number[]) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      const tmp = arr[i];
-      arr[i] = arr[j];
-      arr[j] = tmp;
-    }
-  }
-
   let globalStep = 0;
 
-  // Preallocate reusable batch buffers to avoid per-batch allocations/copies
   const Xbuf = Tensor.empty([batchSize, blockSize]);
   const Ybuf = Tensor.empty([batchSize]);
   const flatX = new Float32Array(batchSize * blockSize);
@@ -255,7 +235,6 @@ async function makemoreMLP() {
       const batchIdx = indices.slice(pos, pos + batchSize);
       const B = batchIdx.length;
 
-      // fill flat buffers (reuse to avoid allocations)
       flatX.fill(0);
       for (let i = 0; i < B; i++) {
         const src = Xarray[batchIdx[i]];
@@ -278,24 +257,19 @@ async function makemoreMLP() {
       const lossValue = await trackTensors(async () => {
         for (const p of parameters) p.grad = null;
 
-        const emb = Wembed.embedding(Xbatch); // [B, blockSize, embeddingDims]
-        const B = emb.shape[0];
+        const emb = Wembed.embedding(Xbatch);
         const embFlat = emb.reshape([B, blockSize * embeddingDims]);
-
         const hidden = embFlat.matmul(Whidden).add(bhidden).tanh();
         const logits = hidden.matmul(Wout).add(bout);
-
         const loss = crossEntropy(logits, Ybatch);
 
         loss.backward();
-
         for (const p of parameters) p.sub_(p.grad!.mul(learningRate));
 
         return await loss.item();
       });
 
-      const t1 = performance.now();
-      const elapsedMs = t1 - t0;
+      const elapsedMs = performance.now() - t0;
       stepTimes.push(elapsedMs);
       windowSum += elapsedMs;
       if (stepTimes.length > 100) windowSum -= stepTimes[stepTimes.length - 101];
@@ -304,38 +278,28 @@ async function makemoreMLP() {
       epochStepCount++;
 
       if (globalStep % 100 === 0) {
-        console.log(
-          `Step ${globalStep}, loss: ${lossValue} (step time ${(elapsedMs / 1000).toFixed(3)}s)`,
-        );
+        console.log(`Step ${globalStep}, loss: ${lossValue} (${(elapsedMs / 1000).toFixed(3)}s)`);
       }
 
       if ((globalStep + 1) % 100 === 0) {
         const count = Math.min(100, stepTimes.length);
-        const avgMs = windowSum / count;
-        console.log(`Avg step time (last ${count}): ${(avgMs / 1000).toFixed(3)}s`);
+        console.log(`Avg step time (last ${count}): ${(windowSum / count / 1000).toFixed(3)}s`);
       }
 
       globalStep++;
     }
 
-    // end of epoch: report epoch stats and decay LR
     const epochAvgLoss = epochStepCount > 0 ? epochLossSum / epochStepCount : 0;
     console.log(
-      `Epoch ${epoch + 1}/${numEpochs} finished — avg loss: ${epochAvgLoss.toFixed(
-        6,
-      )} — steps this epoch: ${epochStepCount}`,
+      `Epoch ${epoch + 1}/${numEpochs} — avg loss: ${epochAvgLoss.toFixed(6)} — ${epochStepCount} steps`,
     );
 
-    // decay learning rate once per epoch
-    lrValue *= lrConfig.decayRate;
+    lrValue *= lrDecayRate;
     learningRate.set([0], lrValue);
-    console.log(`Decayed learning rate after epoch ${epoch + 1}: ${lrValue}`);
+    console.log(`LR after epoch ${epoch + 1}: ${lrValue}`);
 
-    // early stopping check
     if (epochAvgLoss <= earlyStopThreshold) {
-      console.log(
-        `Early stopping: epochAvgLoss=${epochAvgLoss.toFixed(6)} <= ${earlyStopThreshold}`,
-      );
+      console.log(`Early stop: loss ${epochAvgLoss.toFixed(6)} <= ${earlyStopThreshold}`);
       break;
     }
   }
@@ -347,7 +311,7 @@ async function makemoreMLP() {
     await sampleNames(10);
   }
 
-  console.log("Globals available: pause(), resume(), stop(), sample(n?)");
+  console.log("Controls: window.__makemore.{pause, resume, stop, sample}");
 }
 
 makemoreMLP();
