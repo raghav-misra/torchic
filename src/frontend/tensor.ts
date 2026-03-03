@@ -42,6 +42,7 @@ export const GradMode = {
 };
 
 let _activeTracking: Set<Tensor> | null = null;
+let _backwardTracking: Set<Tensor> | null = null;
 
 export async function noGrad<T>(fn: () => Promise<T>): Promise<T> {
   const prev = GradMode.enabled;
@@ -97,6 +98,9 @@ export class Tensor {
 
     if (_activeTracking) {
       _activeTracking.add(this);
+    }
+    if (_backwardTracking) {
+      _backwardTracking.add(this);
     }
   }
   /**
@@ -445,6 +449,37 @@ export class Tensor {
   backward() {
     if (!this.requiresGrad) return;
 
+    _backwardTracking = new Set();
+    try {
+      this.backwardImpl();
+    } finally {
+      this.cleanupBackwardIntermediates();
+    }
+  }
+
+  private cleanupBackwardIntermediates() {
+    const tracked = _backwardTracking;
+    _backwardTracking = null;
+    if (!tracked) return;
+
+    const keep = new Set<string>();
+
+    // Walk the topo and keep every final .grad tensor
+    const visited = new Set<string>();
+    const collect = (v: Tensor) => {
+      if (visited.has(v.id)) return;
+      visited.add(v.id);
+      if (v.grad) keep.add(v.grad.id);
+      for (const child of v.prev) collect(child);
+    };
+    collect(this);
+
+    for (const t of tracked) {
+      if (!keep.has(t.id)) t.dispose();
+    }
+  }
+
+  private backwardImpl() {
     // 1. Topological Sort
     const topo: Tensor[] = [];
     const visited = new Set<string>();
@@ -577,7 +612,7 @@ export class Tensor {
         }
       }
     }
-  }
+  } // end backwardImpl
 
   private addGrad(g: Tensor) {
     if (g.numElements() === 1) {
