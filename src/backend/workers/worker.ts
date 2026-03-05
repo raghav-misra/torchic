@@ -208,7 +208,7 @@ async function handleOp(
     const tempSize = numWorkers * 4;
     const tempOffset = memoryAllocator.allocate(tempSize);
 
-    const taskId1 = Math.random().toString(36).substring(7);
+    const taskId1 = crypto.randomUUID();
     const donePromise1 = new Promise<void>((resolve) => {
       pendingTasks.set(taskId1, { resolve, count: numWorkers });
     });
@@ -228,7 +228,7 @@ async function handleOp(
 
     await donePromise1;
 
-    const taskId2 = Math.random().toString(36).substring(7);
+    const taskId2 = crypto.randomUUID();
     const donePromise2 = new Promise<void>((resolve) => {
       pendingTasks.set(taskId2, { resolve, count: 1 });
     });
@@ -256,7 +256,7 @@ async function handleOp(
 
   // Single worker to avoid race conditions on scatter-add
   if (payload.op === "EMBEDDING_BACKWARD") {
-    const taskId = Math.random().toString(36).substring(7);
+    const taskId = crypto.randomUUID();
     const donePromise = new Promise<void>((resolve) => {
       pendingTasks.set(taskId, { resolve, count: 1 });
     });
@@ -277,7 +277,7 @@ async function handleOp(
     return;
   }
 
-  const taskId = Math.random().toString(36).substring(7);
+  const taskId = crypto.randomUUID();
 
   const donePromise = new Promise<void>((resolve) => {
     pendingTasks.set(taskId, { resolve, count: numWorkers });
