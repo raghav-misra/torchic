@@ -545,6 +545,9 @@ function executeKernel(
     case "LOG":
       elementwise.log(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;
+    case "NEG":
+      elementwise.neg(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
     case "FILL":
       elementwise.fill(outputView, required(params.value, "value"), start, end);
       break;

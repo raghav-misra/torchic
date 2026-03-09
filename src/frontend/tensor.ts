@@ -587,6 +587,9 @@ export class Tensor {
       } else if (v.op === "RESHAPE") {
         const [a] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.reshape(a.shape));
+      } else if (v.op === "NEG") {
+        const [a] = v.prev;
+        if (a.requiresGrad) a.addGrad(v.grad.neg());
       } else if (v.op === "MATERIALIZE") {
         const [a] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad);
@@ -667,7 +670,7 @@ export class Tensor {
   }
 
   neg(): Tensor {
-    return this.mul(Tensor.create(this.shape, false, "FILL", { value: -1 }));
+    return this.runUnaryOp("NEG");
   }
 
   sum(axis?: number, keepDim = false): Tensor {

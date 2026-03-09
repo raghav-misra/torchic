@@ -1,9 +1,9 @@
-import { Tensor, noGrad } from "../src/index";
+import { Tensor, noGrad, init, crossEntropy } from "../src/index";
 import { addTest, addInfo } from "./testUtils";
 
 async function runTests() {
   await addTest("Initialization", async () => {
-    await Tensor.init(4);
+    await init({ backend: "workers", threadCount: 4 });
     return [true, "Initialized with 4 threads"];
   });
 
@@ -59,8 +59,9 @@ async function runTests() {
     log("Creating 2x2 zero tensor");
     const t = Tensor.zeros([2, 2]);
     log("Setting value at [0, 1] to 42");
-    t.setValue([0, 1], 42);
-    const val = await t.getValue([0, 1]);
+    t.set([0, 1], 42);
+    const arr = await t.toArray();
+    const val = arr[0 * 2 + 1];
     log(`Retrieved value: ${val}`);
 
     return [val === 42, `Expected 42, got ${val}`];
@@ -500,11 +501,8 @@ async function runTests() {
         // Backtrack: restore previous weights
         if (prevW !== null && prevB !== null) {
           await noGrad(async () => {
-            const wData = await w.toArray();
-            for (let j = 0; j < wData.length; j++) {
-              w.setValue([j], prevW![j]);
-            }
-            b.setValue([0], prevB!);
+            w.write(prevW!);
+            b.write(new Float32Array([prevB!]));
           });
           log(`   Restored previous weights`);
         }
@@ -592,7 +590,7 @@ async function runTests() {
     log(`Logits: [${await logits.toArray()}]`);
     log(`Target: [${await target.toArray()}] (one-hot)`);
 
-    const loss = Tensor.crossEntropy(logits, target);
+    const loss = crossEntropy(logits, target);
     const lossVal = await loss.item();
     log(`Loss: ${lossVal.toFixed(4)}`);
 
@@ -696,11 +694,8 @@ async function runTests() {
         // Backtrack: restore previous weights
         if (prevW !== null && prevB !== null) {
           await noGrad(async () => {
-            const wData = await w.toArray();
-            for (let j = 0; j < wData.length; j++) {
-              w.setValue([j], prevW![j]);
-            }
-            b.setValue([0], prevB!);
+            w.write(prevW!);
+            b.write(new Float32Array([prevB!]));
           });
           log(`   Restored previous weights`);
         }

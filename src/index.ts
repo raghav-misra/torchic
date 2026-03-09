@@ -1,10 +1,11 @@
 import { Tensor, noGrad, trackTensors } from "./frontend/tensor";
-import { oneHot, crossEntropy } from "./frontend/helpers";
+import { oneHot, oneHotBatch, crossEntropy } from "./frontend/helpers";
 import { init, shutdown } from "./frontend/dispatcher";
 
 const torchic = {
   Tensor,
   oneHot,
+  oneHotBatch,
   crossEntropy,
   init,
   shutdown,
@@ -12,4 +13,4 @@ const torchic = {
 
 export default torchic;
 
-export { Tensor, noGrad, trackTensors, oneHot, crossEntropy, init, shutdown };
+export { Tensor, noGrad, trackTensors, oneHot, oneHotBatch, crossEntropy, init, shutdown };
