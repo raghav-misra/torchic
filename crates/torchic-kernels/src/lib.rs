@@ -2,7 +2,11 @@
 #![allow(clippy::missing_safety_doc)]
 
 mod elementwise;
+mod embedding;
 mod matmul;
+mod reductions;
+mod softmax;
+mod transpose;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

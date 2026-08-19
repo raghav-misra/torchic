@@ -13,6 +13,11 @@ export interface OpParams {
   stridesB?: number[];
   embeddingDim?: number;
   outIndex?: number;
+  // Scratch pointers into the shared backend memory, used by kernels that need
+  // shape/stride metadata at execution time (e.g. WASM materialize).
+  ndim?: number;
+  shapePtr?: number;
+  stridesPtr?: number;
 }
 
 export interface BufferRegion {

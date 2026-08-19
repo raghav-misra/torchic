@@ -13,17 +13,35 @@ async function runOps(backend: Backend, threads: number) {
   const a = Tensor.fromData(Array.from(aData), [64, 64]);
   const b = Tensor.fromData(Array.from(bData), [64, 64]);
 
-  const sum = a.add(b);
-  const prod = a.matmul(b);
+  const results: Record<string, Float32Array | number> = {};
+  results.add = await a.add(b).toArray();
+  results.sub = await a.sub(b).toArray();
+  results.mul = await a.mul(b).toArray();
+  results.div = await a.div(b).toArray();
+  results.neg = await a.neg().toArray();
+  results.relu = await a.relu().toArray();
+  results.exp = await a.exp().toArray();
+  results.log = await a.mul(a).log().toArray(); // avoid log(negative)
+  results.matmul = await a.matmul(b).toArray();
+  results.transpose = await a.transpose().toArray();
 
-  const sumOut = await sum.toArray();
-  const prodOut = await prod.toArray();
+  // Row-wise softmax
+  results.softmax = await a.softmax(1).toArray();
+
+  // SUM (two-phase reduce)
+  results.sum = await a.sum().item();
 
   shutdown();
-  return { sumOut, prodOut };
+  return results;
 }
 
-function maxAbsDiff(x: Float32Array, y: Float32Array): number {
+function maxAbsDiff(x: Float32Array | number, y: Float32Array | number): number {
+  if (typeof x === "number" && typeof y === "number") {
+    return Math.abs(x - y);
+  }
+  if (typeof x === "number" || typeof y === "number") {
+    throw new Error("type mismatch in maxAbsDiff");
+  }
   let m = 0;
   for (let i = 0; i < x.length; i++) {
     const d = Math.abs(x[i] - y[i]);
@@ -33,23 +51,34 @@ function maxAbsDiff(x: Float32Array, y: Float32Array): number {
 }
 
 export async function runWasmSmoke(log: (msg: string) => void) {
-  log("Running ADD + MATMUL on workers backend...");
+  log("Running kernel suite on workers backend...");
   const workersResult = await runOps("workers", 4);
-  log(`  workers add[0..4]  = ${Array.from(workersResult.sumOut.slice(0, 4)).join(", ")}`);
-  log(`  workers matmul[0..4] = ${Array.from(workersResult.prodOut.slice(0, 4)).join(", ")}`);
-
-  log("Running ADD + MATMUL on wasm backend...");
+  log("Running kernel suite on wasm backend...");
   const wasmResult = await runOps("wasm", 4);
-  log(`  wasm add[0..4]  = ${Array.from(wasmResult.sumOut.slice(0, 4)).join(", ")}`);
-  log(`  wasm matmul[0..4] = ${Array.from(wasmResult.prodOut.slice(0, 4)).join(", ")}`);
 
-  const addDiff = maxAbsDiff(workersResult.sumOut, wasmResult.sumOut);
-  const mmDiff = maxAbsDiff(workersResult.prodOut, wasmResult.prodOut);
+  const tolerances: Record<string, number> = {
+    add: 1e-6,
+    sub: 1e-6,
+    mul: 1e-6,
+    div: 1e-5,
+    neg: 0,
+    relu: 0,
+    exp: 1e-5,
+    log: 1e-5,
+    matmul: 1e-3,
+    transpose: 0,
+    softmax: 1e-6,
+    sum: 1e-2, // reduction ordering differs; float sum drift is expected
+  };
 
-  log(`ADD    max |workers - wasm| = ${addDiff.toExponential(3)}`);
-  log(`MATMUL max |workers - wasm| = ${mmDiff.toExponential(3)}`);
-
-  const ok = addDiff < 1e-5 && mmDiff < 1e-3;
-  log(ok ? "PASS" : "FAIL");
-  return ok;
+  let allOk = true;
+  for (const key of Object.keys(workersResult)) {
+    const diff = maxAbsDiff(workersResult[key], wasmResult[key]);
+    const tol = tolerances[key] ?? 1e-5;
+    const ok = diff <= tol;
+    if (!ok) allOk = false;
+    log(`  ${key.padEnd(10)} max|w-a| = ${diff.toExponential(3).padStart(11)}   tol ${tol.toExponential(1)}   ${ok ? "OK" : "FAIL"}`);
+  }
+  log(allOk ? "ALL PASS" : "SOME FAILED");
+  return allOk;
 }

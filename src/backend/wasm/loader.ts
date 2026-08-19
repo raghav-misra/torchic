@@ -20,6 +20,9 @@ export interface KernelExports {
   ): void;
 
   add(aPtr: number, bPtr: number, outPtr: number, start: number, end: number): void;
+  sub(aPtr: number, bPtr: number, outPtr: number, start: number, end: number): void;
+  mul(aPtr: number, bPtr: number, outPtr: number, start: number, end: number): void;
+  div(aPtr: number, bPtr: number, outPtr: number, start: number, end: number): void;
 
   add_broadcast(
     aPtr: number,
@@ -33,7 +36,100 @@ export interface KernelExports {
     stridesBPtr: number,
   ): void;
 
+  neg(aPtr: number, outPtr: number, start: number, end: number): void;
+  relu(aPtr: number, outPtr: number, start: number, end: number): void;
+  relu_backward(
+    inputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    start: number,
+    end: number,
+  ): void;
+  exp(aPtr: number, outPtr: number, start: number, end: number): void;
+  log(aPtr: number, outPtr: number, start: number, end: number): void;
+  tanh(aPtr: number, outPtr: number, start: number, end: number): void;
+  tanh_backward(
+    outputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    start: number,
+    end: number,
+  ): void;
+
+  fill(outPtr: number, val: number, start: number, end: number): void;
+  copy(inputPtr: number, outPtr: number, start: number, end: number): void;
+
   randn(outPtr: number, start: number, end: number, seed: number): void;
+
+  sum_partial(
+    inputPtr: number,
+    outPtr: number,
+    outIndex: number,
+    start: number,
+    end: number,
+  ): void;
+  sum_final(inputPtr: number, outPtr: number, n: number): void;
+  add_scalar_tensor(
+    aPtr: number,
+    scalarPtr: number,
+    outPtr: number,
+    start: number,
+    end: number,
+  ): void;
+
+  transpose(
+    inputPtr: number,
+    outputPtr: number,
+    m: number,
+    n: number,
+    startRow: number,
+    endRow: number,
+  ): void;
+
+  softmax2d(
+    inputPtr: number,
+    outputPtr: number,
+    m: number,
+    n: number,
+    startRow: number,
+    endRow: number,
+  ): void;
+  softmax_backward2d(
+    outputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    m: number,
+    n: number,
+    startRow: number,
+    endRow: number,
+  ): void;
+
+  embedding(
+    weightsPtr: number,
+    indicesPtr: number,
+    outputPtr: number,
+    embeddingDim: number,
+    start: number,
+    end: number,
+  ): void;
+  embedding_backward(
+    weightsGradPtr: number,
+    indicesPtr: number,
+    outputGradPtr: number,
+    embeddingDim: number,
+    start: number,
+    end: number,
+  ): void;
+
+  materialize(
+    inputPtr: number,
+    outputPtr: number,
+    start: number,
+    end: number,
+    ndim: number,
+    shapePtr: number,
+    stridesPtr: number,
+  ): void;
 }
 
 export interface WasmInstance {

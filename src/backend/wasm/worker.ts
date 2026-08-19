@@ -187,8 +187,112 @@ async function handleOp(
   const output = outputMeta;
   const numWorkers = computePorts.length;
 
-  // SUM would require SUM_PARTIAL + SUM_FINAL exports (not ported yet).
-  // Let it hit the generic dispatch below so the compute worker throws a clear error.
+  // SUM: two-phase reduce (partial sums per worker -> final scalar).
+  if (payload.op === "SUM") {
+    if (!memoryAllocator) return;
+
+    const tempSize = numWorkers * 4;
+    const tempOffset = memoryAllocator.allocate(tempSize);
+
+    const taskId1 = crypto.randomUUID();
+    const done1 = new Promise<void>((resolve) => {
+      pendingTasks.set(taskId1, { resolve, count: numWorkers });
+    });
+    computePorts.forEach((port, index) => {
+      port.postMessage({
+        type: "EXECUTE_TASK",
+        taskId: taskId1,
+        op: "SUM_PARTIAL",
+        inputs: [{ offset: inputs[0].offset, size: inputs[0].size }],
+        output: { offset: tempOffset, size: tempSize },
+        params: { outIndex: index },
+        workerIndex: index,
+        totalWorkers: numWorkers,
+      });
+    });
+    await done1;
+
+    const taskId2 = crypto.randomUUID();
+    const done2 = new Promise<void>((resolve) => {
+      pendingTasks.set(taskId2, { resolve, count: 1 });
+    });
+    computePorts[0].postMessage({
+      type: "EXECUTE_TASK",
+      taskId: taskId2,
+      op: "SUM_FINAL",
+      inputs: [{ offset: tempOffset, size: tempSize }],
+      output: { offset: output.offset, size: output.size },
+      params: { n: numWorkers },
+      workerIndex: 0,
+      totalWorkers: 1,
+    });
+    await done2;
+
+    memoryAllocator.free(tempOffset, tempSize);
+    if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+    return;
+  }
+
+  // Single-worker: scatter-add races across workers otherwise.
+  if (payload.op === "EMBEDDING_BACKWARD") {
+    const taskId = crypto.randomUUID();
+    const done = new Promise<void>((resolve) => {
+      pendingTasks.set(taskId, { resolve, count: 1 });
+    });
+    computePorts[0].postMessage({
+      type: "EXECUTE_TASK",
+      taskId,
+      op: payload.op,
+      inputs: inputs.map((m) => ({ offset: m.offset, size: m.size })),
+      output: { offset: output.offset, size: output.size },
+      params: payload.params,
+      workerIndex: 0,
+      totalWorkers: 1,
+    });
+    await done;
+    if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+    return;
+  }
+
+  // Needs shape/strides visible to kernels — pack them into a shared scratch region.
+  if (payload.op === "MATERIALIZE") {
+    if (!memoryAllocator || !buffer) return;
+    const shape = required(payload.params.shape, "shape");
+    const strides = required(payload.params.strides, "strides");
+    const ndim = shape.length;
+    const scratchSize = ndim * 8;
+    const scratchOffset = memoryAllocator.allocate(scratchSize);
+    const view = new Uint32Array(buffer, scratchOffset, ndim * 2);
+    for (let i = 0; i < ndim; i++) {
+      view[i] = shape[i];
+      view[ndim + i] = strides[i];
+    }
+
+    const taskId = crypto.randomUUID();
+    const done = new Promise<void>((resolve) => {
+      pendingTasks.set(taskId, { resolve, count: numWorkers });
+    });
+    computePorts.forEach((port, index) => {
+      port.postMessage({
+        type: "EXECUTE_TASK",
+        taskId,
+        op: "MATERIALIZE",
+        inputs: inputs.map((m) => ({ offset: m.offset, size: m.size })),
+        output: { offset: output.offset, size: output.size },
+        params: {
+          ndim,
+          shapePtr: scratchOffset,
+          stridesPtr: scratchOffset + ndim * 4,
+        },
+        workerIndex: index,
+        totalWorkers: numWorkers,
+      });
+    });
+    await done;
+    memoryAllocator.free(scratchOffset, scratchSize);
+    if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+    return;
+  }
 
   const taskId = crypto.randomUUID();
   const donePromise = new Promise<void>((resolve) => {
@@ -311,34 +415,194 @@ function executeKernel(
     return;
   }
 
-  if (op === "ADD") {
-    const totalElements = output.size / 4;
-    const chunkSize = Math.ceil(totalElements / totalWorkers);
-    const start = workerIndex * chunkSize;
-    const end = Math.min(start + chunkSize, totalElements);
-    if (start >= totalElements) return;
+  if (op === "SOFTMAX" || op === "SOFTMAX_BACKWARD" || op === "TRANSPOSE") {
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const rowsTotal = op === "TRANSPOSE" ? n : m;
+    const rowsPerWorker = Math.ceil(rowsTotal / totalWorkers);
+    const startRow = workerIndex * rowsPerWorker;
+    const endRow = Math.min(startRow + rowsPerWorker, rowsTotal);
+    if (startRow >= rowsTotal) return;
 
-    const contiguous =
-      isContiguous(params.shape, params.stridesA) &&
-      isContiguous(params.shape, params.stridesB);
-    if (!contiguous) {
-      throw new Error("WASM backend: broadcasted ADD not yet ported");
+    if (op === "SOFTMAX") {
+      exports.softmax2d(inputs[0].offset, output.offset, m, n, startRow, endRow);
+    } else if (op === "SOFTMAX_BACKWARD") {
+      exports.softmax_backward2d(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        m,
+        n,
+        startRow,
+        endRow,
+      );
+    } else {
+      exports.transpose(inputs[0].offset, output.offset, m, n, startRow, endRow);
     }
-    exports.add(inputs[0].offset, inputs[1].offset, output.offset, start, end);
     return;
   }
 
-  if (op === "RANDN") {
-    const totalElements = output.size / 4;
-    const chunkSize = Math.ceil(totalElements / totalWorkers);
-    const start = workerIndex * chunkSize;
-    const end = Math.min(start + chunkSize, totalElements);
-    if (start >= totalElements) return;
-
-    // Mix workerIndex + wall clock so parallel streams stay independent across calls.
-    const seed = ((Date.now() & 0xffffffff) ^ ((workerIndex + 1) * 0x9e3779b1)) >>> 0;
-    exports.randn(output.offset, start, end, seed);
+  if (op === "SUM_PARTIAL") {
+    const total = inputs[0].size / 4;
+    const chunk = Math.ceil(total / totalWorkers);
+    const start = workerIndex * chunk;
+    const end = Math.min(start + chunk, total);
+    if (start >= total) {
+      // Ensure this worker's slot is zeroed even when it gets no work.
+      exports.fill(output.offset, 0, required(params.outIndex, "outIndex"), required(params.outIndex, "outIndex") + 1);
+      return;
+    }
+    exports.sum_partial(
+      inputs[0].offset,
+      output.offset,
+      required(params.outIndex, "outIndex"),
+      start,
+      end,
+    );
     return;
+  }
+
+  if (op === "SUM_FINAL") {
+    exports.sum_final(inputs[0].offset, output.offset, required(params.n, "n"));
+    return;
+  }
+
+  if (op === "EMBEDDING") {
+    const total = output.size / 4;
+    const chunk = Math.ceil(total / totalWorkers);
+    const start = workerIndex * chunk;
+    const end = Math.min(start + chunk, total);
+    if (start >= total) return;
+    exports.embedding(
+      inputs[0].offset,
+      inputs[1].offset,
+      output.offset,
+      required(params.embeddingDim, "embeddingDim"),
+      start,
+      end,
+    );
+    return;
+  }
+
+  if (op === "EMBEDDING_BACKWARD") {
+    // Coordinator dispatched this on a single worker; grad_output length lives in inputs[1].
+    const total = inputs[1].size / 4;
+    exports.embedding_backward(
+      output.offset,
+      inputs[0].offset,
+      inputs[1].offset,
+      required(params.embeddingDim, "embeddingDim"),
+      0,
+      total,
+    );
+    return;
+  }
+
+  // Elementwise family: uniform chunk-slicing, contiguous-only fast path.
+  const totalElements = output.size / 4;
+  const chunkSize = Math.ceil(totalElements / totalWorkers);
+  const start = workerIndex * chunkSize;
+  const end = Math.min(start + chunkSize, totalElements);
+  if (start >= totalElements) return;
+
+  const stridedBinary = () => {
+    if (!isContiguous(params.shape, params.stridesA) || !isContiguous(params.shape, params.stridesB)) {
+      throw new Error(`WASM backend: broadcasted ${op} not yet ported`);
+    }
+  };
+  const stridedUnary = () => {
+    if (!isContiguous(params.shape, params.strides)) {
+      throw new Error(`WASM backend: strided ${op} not yet ported`);
+    }
+  };
+
+  switch (op) {
+    case "ADD":
+      stridedBinary();
+      exports.add(inputs[0].offset, inputs[1].offset, output.offset, start, end);
+      return;
+    case "SUB":
+      stridedBinary();
+      exports.sub(inputs[0].offset, inputs[1].offset, output.offset, start, end);
+      return;
+    case "MUL":
+      stridedBinary();
+      exports.mul(inputs[0].offset, inputs[1].offset, output.offset, start, end);
+      return;
+    case "DIV":
+      stridedBinary();
+      exports.div(inputs[0].offset, inputs[1].offset, output.offset, start, end);
+      return;
+    case "NEG":
+      stridedUnary();
+      exports.neg(inputs[0].offset, output.offset, start, end);
+      return;
+    case "RELU":
+      stridedUnary();
+      exports.relu(inputs[0].offset, output.offset, start, end);
+      return;
+    case "RELU_BACKWARD":
+      stridedUnary();
+      exports.relu_backward(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        start,
+        end,
+      );
+      return;
+    case "EXP":
+      stridedUnary();
+      exports.exp(inputs[0].offset, output.offset, start, end);
+      return;
+    case "LOG":
+      stridedUnary();
+      exports.log(inputs[0].offset, output.offset, start, end);
+      return;
+    case "TANH":
+      stridedUnary();
+      exports.tanh(inputs[0].offset, output.offset, start, end);
+      return;
+    case "TANH_BACKWARD":
+      exports.tanh_backward(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        start,
+        end,
+      );
+      return;
+    case "FILL":
+      exports.fill(output.offset, required(params.value, "value"), start, end);
+      return;
+    case "COPY":
+      exports.copy(inputs[0].offset, output.offset, start, end);
+      return;
+    case "MATERIALIZE":
+      exports.materialize(
+        inputs[0].offset,
+        output.offset,
+        start,
+        end,
+        required(params.ndim, "ndim"),
+        required(params.shapePtr, "shapePtr"),
+        required(params.stridesPtr, "stridesPtr"),
+      );
+      return;
+    case "ADD_SCALAR_TENSOR":
+      exports.add_scalar_tensor(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        start,
+        end,
+      );
+      return;
+    case "RANDN": {
+      const seed = ((Date.now() & 0xffffffff) ^ ((workerIndex + 1) * 0x9e3779b1)) >>> 0;
+      exports.randn(output.offset, start, end, seed);
+      return;
+    }
   }
 
   throw new Error(`WASM backend: op '${op}' not yet ported`);
