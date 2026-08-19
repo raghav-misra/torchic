@@ -22,6 +22,9 @@
         &nbsp;|&nbsp;
         <button id="bench-8">Run dispatch bench (threads=8)</button>
         &nbsp;|&nbsp;
+        <button id="wasm-smoke">WASM smoke test</button>
+        &nbsp;|&nbsp;
+        <button id="bench-compare">Compare workers vs wasm</button>
       </p>
       <div
         id="bench-log"
@@ -50,10 +53,24 @@
             log("Done.");
           }),
         );
+
+        document.getElementById("wasm-smoke").addEventListener("click", async () => {
+          log("Starting WASM smoke test...");
+          const mod = await import("./wasm.smoke.ts");
+          await mod.runWasmSmoke(log);
+          log("Done.");
+        });
+
+        document.getElementById("bench-compare").addEventListener("click", async () => {
+          log("Starting backend comparison bench...");
+          const mod = await import("./bench/dispatch-bench.ts");
+          await mod.runBackendCompare(log);
+          log("Done.");
+        });
       </script>
       <!-- <div id="test-container"></div> -->
     </div>
     <!-- <script type="module" src="./test.ts"></script> -->
-    <script type="module" src="./makemore.ts"></script>
+    <!-- <script type="module" src="./makemore.ts"></script> -->
   </body>
 </html>

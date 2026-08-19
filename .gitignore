@@ -17,3 +17,8 @@ yarn-error.log*
 # Editor directories
 .vscode/
 .idea/
+
+# Rust build artifacts
+crates/**/target/
+src/backend/wasm/kernels.wasm
+

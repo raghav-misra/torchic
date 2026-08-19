@@ -23,13 +23,15 @@ interface InitOptions {
 
 export async function init(options: InitOptions) {
   if (options.backend === "workers") {
-    dispatcher = new WorkerDispatcher();
-    await dispatcher.init(options.threadCount, options.memorySizeMB);
+    const d = new WorkerDispatcher();
+    await d.init(options.threadCount, options.memorySizeMB);
+    dispatcher = d;
     return;
   }
   if (options.backend === "wasm") {
-    dispatcher = new WasmDispatcher();
-    await dispatcher.init(options.threadCount, options.memorySizeMB);
+    const d = new WasmDispatcher();
+    await d.init(options.threadCount, options.memorySizeMB);
+    dispatcher = d;
     return;
   }
 }

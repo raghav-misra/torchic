@@ -1,10 +1,19 @@
 import torchic, { Tensor } from "../../src/index";
 
-async function benchMatmulE2E(m: number, k: number, n: number, threads: number, trials = 10) {
+type Backend = "workers" | "wasm";
+
+async function benchMatmulE2E(
+  backend: Backend,
+  m: number,
+  k: number,
+  n: number,
+  threads: number,
+  trials = 10,
+) {
   const logs: string[] = [];
   const push = (s: string) => logs.push(s);
-  push(`Initializing Tensor runtime with ${threads} threads...`);
-  await torchic.init({ backend: "workers", threadCount: threads });
+  push(`[${backend}] Initializing with ${threads} threads...`);
+  await torchic.init({ backend, threadCount: threads });
 
   const A = Tensor.randn([m, k]);
   const B = Tensor.randn([k, n]);
@@ -68,39 +77,85 @@ async function benchMatmulE2E(m: number, k: number, n: number, threads: number, 
   const gflops = flops / (median / 1000) / 1e9;
 
   push(
-    `E2E matmul ${m}x${k} * ${k}x${n} with ${threads} threads: median ${median.toFixed(
+    `[${backend}] E2E matmul ${m}x${k} * ${k}x${n} with ${threads} threads: median ${median.toFixed(
       3,
     )} ms - ${gflops.toFixed(3)} GFLOPS`,
   );
-  return { m, k, n, threads, medianMs: median, gflops, logs };
+  return { backend, m, k, n, threads, medianMs: median, gflops, logs };
 }
 
-export async function runBench(threads: number, log: (msg: string) => void) {
+export async function runBench(threads: number, log: (msg: string) => void, backend: Backend = "workers") {
   const t = threads;
-  // Ensure previous runtime (if any) is shut down so we can reinit with new thread count
   try {
     torchic.shutdown();
   } catch {
     // ignore
   }
-  // sizes tuned to be realistic
   const sizes = [
     [128, 128, 128],
     [256, 128, 128],
     [256, 256, 256],
-    // larger size for stress-testing cache / bandwidth scaling
     [512, 512, 512],
     [1024, 1024, 1024],
   ];
   try {
     for (const [m, k, n] of sizes) {
-      const res = await benchMatmulE2E(m, k, n, t, 7);
-      // forward collected logs to provided logger
+      const res = await benchMatmulE2E(backend, m, k, n, t, 7);
       for (const line of res.logs) log(line);
       log("----");
     }
   } catch (e) {
     log(`Bench error: ${String(e)}`);
+  }
+}
+
+export async function runBackendCompare(log: (msg: string) => void) {
+  const backends: Backend[] = ["workers", "wasm"];
+  const threadCounts = [1, 2, 4, 8];
+  const sizes: [number, number, number][] = [
+    [128, 128, 128],
+    [512, 512, 512],
+    [1024, 1024, 1024],
+  ];
+
+  const results: Record<string, number> = {};
+
+  for (const size of sizes) {
+    const [m, k, n] = size;
+    log(`\n=== matmul ${m}x${k}x${n} ===`);
+    for (const backend of backends) {
+      for (const t of threadCounts) {
+        try {
+          torchic.shutdown();
+        } catch {
+          // ignore
+        }
+        try {
+          const res = await benchMatmulE2E(backend, m, k, n, t, 5);
+          const key = `${backend}@${t}`;
+          results[`${m}x${k}x${n}|${key}`] = res.medianMs;
+          log(
+            `  ${backend.padEnd(8)} threads=${t}: ${res.medianMs.toFixed(2).padStart(8)} ms   ${res.gflops
+              .toFixed(3)
+              .padStart(6)} GFLOPS`,
+          );
+        } catch (e) {
+          log(`  ${backend}@${t} FAIL: ${String(e)}`);
+        }
+      }
+    }
+    for (const t of threadCounts) {
+      const w = results[`${m}x${k}x${n}|workers@${t}`];
+      const a = results[`${m}x${k}x${n}|wasm@${t}`];
+      if (w && a) {
+        log(`  speedup wasm/workers @ ${t}t: ${(w / a).toFixed(2)}x`);
+      }
+    }
+  }
+  try {
+    torchic.shutdown();
+  } catch {
+    // ignore
   }
 }
 

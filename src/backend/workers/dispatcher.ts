@@ -13,6 +13,7 @@ export class WorkerDispatcher implements Dispatcher {
   private computeWorkers: Worker[] = [];
   private callbacks = new Map<string, (data: CoordinatorResponseData) => void>();
   private tensorIdCounter = 0;
+  private readonly instanceTag = crypto.randomUUID().slice(0, 8);
 
   async init(threadCount = 4, memorySizeMB = 256): Promise<void> {
     if (this.coordinator) return;
@@ -126,7 +127,7 @@ export class WorkerDispatcher implements Dispatcher {
   }
 
   nextTensorId(): string {
-    return `t_${this.tensorIdCounter++}`;
+    return `${this.instanceTag}_t_${this.tensorIdCounter++}`;
   }
 
   allocate(tensorId: string, size: number): void {
