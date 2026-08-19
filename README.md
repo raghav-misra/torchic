@@ -230,7 +230,7 @@ Both backends use the **same architecture**: a coordinator worker owns the share
 - **Not a replacement**: for GPU-accelerated libraries on large models
 - **Browser requirements**: SharedArrayBuffer (COOP/COEP headers)
 
-### `matmul` — Workers backend
+### `matmul` – Workers backend
 
 Blocked (BLOCK=32) JavaScript kernels dispatched across N worker threads. Values are medians over 5-7 timed trials after warmup.
 
@@ -249,7 +249,7 @@ Blocked (BLOCK=32) JavaScript kernels dispatched across N worker threads. Values
 |              |     |    $512 \times 512 \times 512$ |       84.28 |  3.185 |
 |              |     | $1024 \times 1024 \times 1024$ |      639.23 |  3.360 |
 
-### `matmul` — Rust/WASM backend
+### `matmul` – Rust/WASM backend
 
 Rust kernels compiled to WebAssembly with `+simd128` and shared memory (`--import-memory --shared-memory`). Same coordinator + N compute worker pipeline; the compute workers instantiate the same compiled module against one shared `WebAssembly.Memory`.
 
@@ -280,32 +280,32 @@ Speedup ratios (`wasm / workers`, same thread count):
 |    $512^3$   | 9.31× | 9.87× | 9.32× | 8.63× |
 |    $1024^3$  | 9.02× | 8.02× | 9.65× | 7.91× |
 
-**Where the gap comes from.** JS engines have no SIMD API — the `SIMD.js` proposal was withdrawn from ECMAScript in 2019 in favor of WebAssembly SIMD. V8's TurboFan does opportunistic auto-vectorization on tight typed-array loops sometimes, but you can't rely on it. Every workers-backend `f32 add` runs one lane at a time. Every wasm-backend `f32 add` runs four (`f32x4_add`). Multi-threading is symmetric across the two backends, so the wasm win is entirely per-thread work.
+**Where the gap comes from.** JS engines have no SIMD API – the `SIMD.js` proposal was withdrawn from ECMAScript in 2019 in favor of WebAssembly SIMD. V8's TurboFan does opportunistic auto-vectorization on tight typed-array loops sometimes, but you can't rely on it. Every workers-backend `f32 add` runs one lane at a time. Every wasm-backend `f32 add` runs four (`f32x4_add`). Multi-threading is symmetric across the two backends, so the wasm win is entirely per-thread work.
 
 #### Workers-side optimizations
 
 - **Blocked matmul** (BLOCK=32) to keep the inner block in L1 across k-iterations.
-- **Row-parallel dispatch** — each worker owns a contiguous row range of the output, avoiding cache-line contention on writes.
-- **Two-phase SUM reduce** — partial sums per worker written to per-worker scratch slots, then reduced by worker 0. No cross-thread synchronization during the partial phase.
+- **Row-parallel dispatch** – each worker owns a contiguous row range of the output, avoiding cache-line contention on writes.
+- **Two-phase SUM reduce** – partial sums per worker written to per-worker scratch slots, then reduced by worker 0. No cross-thread synchronization during the partial phase.
 - **Segregated free-list allocator** with per-size-class LIFO buckets. Because NN workloads reuse identical tensor shapes each iteration, most allocations recycle a block in O(1).
-- **Static work partitioning** — no runtime work-stealing or queueing during a kernel.
+- **Static work partitioning** – no runtime work-stealing or queueing during a kernel.
 - **Zero-copy views**: reshape/transpose only rewrite strides; the data stays put in the shared buffer.
 
 #### Rust/WASM-side optimizations
 
 Everything above, plus:
 
-- **SIMD128 target feature** (`+simd128`) — `f32x4_add`, `f32x4_mul`, `f32x4_max`, `v128_load`/`store` on the hot paths for all binary elementwise ops, reductions, fill, copy, and matmul.
+- **SIMD128 target feature** (`+simd128`) – `f32x4_add`, `f32x4_mul`, `f32x4_max`, `v128_load`/`store` on the hot paths for all binary elementwise ops, reductions, fill, copy, and matmul.
 - **Register-blocked 4×8 matmul microkernel.** Eight `f32x4` accumulators live in wasm locals (which LLVM lowers to CPU SIMD registers), so the accumulator never touches memory during the k-loop. Amortizes A/B load cost across 32 output floats per pass.
-- **8 independent FMA chains** in the microkernel — 4 output rows × 2 output col-lanes — giving modern CPUs the parallel dependency chains they need to actually issue 2-4 SIMD ops per cycle. This is what pushed matmul from ~10 GFLOPS to ~27 GFLOPS at 8 threads.
-- **Shared `WebAssembly.Memory({ shared: true })`** — the module imports memory rather than declaring its own, so the coordinator + N compute workers all share one `SharedArrayBuffer`-backed linear memory. Kernels read/write tensor bytes directly at their JS-assigned byte offsets — no copy, no serialization across the JS/WASM boundary.
-- **`no_std` cdylib, LTO, `opt-level = 3`, `codegen-units = 1`, `panic = "abort"`** — maximum inlining, no runtime, minimal binary.
+- **8 independent FMA chains** in the microkernel – 4 output rows × 2 output col-lanes – giving modern CPUs the parallel dependency chains they need to actually issue 2-4 SIMD ops per cycle. This is what pushed matmul from ~10 GFLOPS to ~27 GFLOPS at 8 threads.
+- **Shared `WebAssembly.Memory({ shared: true })`** – the module imports memory rather than declaring its own, so the coordinator + N compute workers all share one `SharedArrayBuffer`-backed linear memory. Kernels read/write tensor bytes directly at their JS-assigned byte offsets – no copy, no serialization across the JS/WASM boundary.
+- **`no_std` cdylib, LTO, `opt-level = 3`, `codegen-units = 1`, `panic = "abort"`** – maximum inlining, no runtime, minimal binary.
 
 #### Scaling behavior
 
 Both backends scale roughly linearly from 1t → 4t, then flatten between 4t → 8t. The test machine has 6 physical cores + 12 logical threads. At 4 threads we still have room; at 8 threads two logical threads share each physical core's SIMD units and cache. On the largest workload (1024³), the wasm backend additionally starts hitting main-memory bandwidth: B is streamed through cache each output tile, and DRAM caps the win.
 
-The 128³ case underperforms across the board because dispatch overhead (worker messaging, task promise resolution) dominates the actual compute. This is a benchmark artifact — real training loops don't touch 128³ much.
+The 128³ case underperforms across the board because dispatch overhead (worker messaging, task promise resolution) dominates the actual compute. This is a benchmark artifact – real training loops don't touch 128³ much.
 
 ### Test machine / environment
 
@@ -326,26 +326,39 @@ The 128³ case underperforms across the board because dispatch overhead (worker 
 - **Backend-parameterized test suite:** run the existing kernel tests against both backends automatically.
 - **Benchmarking & profiling:** per-worker instrumentation, memory-bandwidth measurements, and automated perf tests to guide the next optimization.
 
-## Examples in Test Suite
+## Tests, benches, and demos
 
-The `tests/test.ts` file contains examples for:
+The [tests/](tests/) directory is organized as follows:
 
-- Basic operations and broadcasting
-- Autograd and gradient checking
-- Matrix multiplication with gradients
-- MLP layer forward/backward
-- Linear regression with adaptive learning rate
-- Multivariate regression
-- Cross-entropy loss
-- Softmax layer
-- Zero-copy reshape and transpose
+- `tests/unit/` – Vitest unit tests (kernels, memory allocator, tensor helpers, broadcast semantics). Run with `npm test`.
+- `tests/framework/` – Tiny UI harness: `defineTest` / `defineBench` register suites; `mount()` generates the DOM. CSS lives in [`framework/styles.css`](tests/framework/styles.css).
+- `tests/suites/` – Browser-only suites registered against the framework. Currently: WASM ↔ Workers kernel parity and a matmul GFLOPS bench across both backends.
+- `tests/demos/` – Playground scripts (e.g. `makemore.ts`).
 
-Run the test page:
+To open the interactive page:
 
 ```bash
 npm run dev
-# Open browser to localhost:5173/tests/
+# Open browser to http://localhost:5173/
 ```
+
+Add a new bench or test by dropping a file in `tests/suites/` and importing it from `tests/index.ts`:
+
+```ts
+import { defineBench } from "../framework/define";
+
+defineBench(
+  "My new bench",
+  async (threads, { log }) => {
+    log(`running with ${threads} threads`);
+    // ... run some work ...
+    return { threads, opsPerSec: 12345 };
+  },
+  [1, 2, 4, 8],
+);
+```
+
+The framework generates buttons per param + a "Run all", collects results into a table, and streams log output to a collapsible panel.
 
 ## License
 

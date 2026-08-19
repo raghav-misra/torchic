@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import * as elementwise from "../src/backend/workers/kernels/elementwise";
+import * as elementwise from "../../src/backend/workers/kernels/elementwise";
 
 function rowMajorStrides(shape: number[]): number[] {
   const strides = new Array(shape.length);

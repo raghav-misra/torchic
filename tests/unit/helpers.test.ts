@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { inferShape, countElements, flattenInto } from "../src/frontend/tensor";
-import type { NestedArray } from "../src/frontend/tensor";
+import { inferShape, countElements, flattenInto } from "../../src/frontend/tensor";
+import type { NestedArray } from "../../src/frontend/tensor";
 
 describe("fromData helpers", () => {
   it("inferShape on nested 2D array", () => {

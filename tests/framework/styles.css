@@ -1,0 +1,219 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1a1a1a;
+  --fg-muted: #666;
+  --bg: #fdfdfd;
+  --border: #ddd;
+  --border-strong: #999;
+  --accent: #2b6cb0;
+  --accent-hover: #1e4d84;
+  --pass: #2f855a;
+  --pass-bg: #f0fff4;
+  --pass-border: #9ae6b4;
+  --fail: #c53030;
+  --fail-bg: #fff5f5;
+  --fail-border: #feb2b2;
+  --log-bg: #f7f7f7;
+  --table-alt: #fafafa;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: system-ui, -apple-system, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #eee;
+    --fg-muted: #aaa;
+    --bg: #1a1a1a;
+    --border: #333;
+    --border-strong: #555;
+    --accent: #63b3ed;
+    --accent-hover: #4299e1;
+    --pass: #68d391;
+    --pass-bg: #1a2e22;
+    --pass-border: #2f855a;
+    --fail: #fc8181;
+    --fail-bg: #2e1a1a;
+    --fail-border: #c53030;
+    --log-bg: #242424;
+    --table-alt: #222;
+  }
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--fg);
+  background: var(--bg);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+  line-height: 1.5;
+}
+
+h1 {
+  margin: 0 0 32px 0;
+  font-size: 24px;
+}
+
+.suite {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 20px;
+  background: var(--bg);
+}
+
+.suite h2 {
+  margin: 0 0 4px 0;
+  font-size: 18px;
+}
+
+.suite .desc {
+  color: var(--fg-muted);
+  font-size: 14px;
+  margin: 0 0 12px 0;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.buttons button {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.buttons button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.buttons button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buttons button.primary {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+.buttons button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  color: white;
+}
+
+.result {
+  margin-top: 12px;
+}
+
+.test-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid;
+  margin: 4px 6px 4px 0;
+}
+
+.test-badge.pass {
+  color: var(--pass);
+  background: var(--pass-bg);
+  border-color: var(--pass-border);
+}
+
+.test-badge.fail {
+  color: var(--fail);
+  background: var(--fail-bg);
+  border-color: var(--fail-border);
+}
+
+.test-badge.running {
+  color: var(--fg-muted);
+  border-color: var(--border);
+}
+
+.bench-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+.bench-table th,
+.bench-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+
+.bench-table th:first-child,
+.bench-table td:first-child {
+  text-align: left;
+}
+
+.bench-table th {
+  font-weight: 600;
+  color: var(--fg-muted);
+  border-bottom-color: var(--border-strong);
+}
+
+.bench-table tr:nth-child(even) td {
+  background: var(--table-alt);
+}
+
+.bench-table th.highlight {
+  color: var(--accent);
+}
+
+.bench-table td.highlight {
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.bench-table tr:nth-child(even) td.highlight {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.bench-table tr.running td {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.log-details {
+  margin-top: 12px;
+  font-size: 13px;
+}
+
+.log-details summary {
+  cursor: pointer;
+  color: var(--fg-muted);
+  user-select: none;
+}
+
+.log {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--log-bg);
+  padding: 8px 10px;
+  border-radius: 4px;
+  margin: 6px 0 0 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

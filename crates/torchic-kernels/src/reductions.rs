@@ -37,7 +37,7 @@ pub unsafe extern "C" fn sum_final(input: *const f32, out: *mut f32, n: u32) {
     *out = sum;
 }
 
-// out[i] = a[i] + scalar[0] — broadcast a length-1 tensor across all elements.
+// out[i] = a[i] + scalar[0] – broadcast a length-1 tensor across all elements.
 #[no_mangle]
 pub unsafe extern "C" fn add_scalar_tensor(
     a: *const f32,

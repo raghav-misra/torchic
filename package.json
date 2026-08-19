@@ -9,7 +9,6 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "bench:kernel": "npm run build && node dist/tests/bench/kernel-bench.js",
     "build:wasm": "cargo build --release --manifest-path crates/torchic-kernels/Cargo.toml && node scripts/copy-wasm.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

@@ -1,4 +1,4 @@
-import { Tensor, trackTensors, crossEntropy, noGrad, init } from "../src/index";
+import { Tensor, trackTensors, crossEntropy, noGrad, init } from "../../src";
 
 function buildVocab(chars: string) {
   const stoi: Record<string, number> = {};

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MemoryAllocator } from "../src/backend/memory";
+import { MemoryAllocator } from "../../src/backend/memory";
 
 function makeSAB(bytes: number) {
   return new SharedArrayBuffer(bytes);

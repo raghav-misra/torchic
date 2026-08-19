@@ -254,7 +254,7 @@ async function handleOp(
     return;
   }
 
-  // Needs shape/strides visible to kernels — pack them into a shared scratch region.
+  // Needs shape/strides visible to kernels – pack them into a shared scratch region.
   if (payload.op === "MATERIALIZE") {
     if (!memoryAllocator || !buffer) return;
     const shape = required(payload.params.shape, "shape");
