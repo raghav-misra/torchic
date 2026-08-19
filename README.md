@@ -262,7 +262,7 @@ The GFLOPs obviously don't compare to higher-end CPUs with optimized kernels, le
 
 ## Future Improvements
 
-- **CPU backend (WASM/C++):** Move compute kernels into a WebAssembly backend implemented in C/C++ to eliminate JS interpreter overhead, enable compiler optimizations and SIMD, and yield much higher single-thread FLOPS.
+- **CPU backend (WASM/C++ or Rust):** Move compute kernels into a WebAssembly backend implemented in C/C++ to eliminate JS interpreter overhead, enable compiler optimizations and SIMD, and yield much higher single-thread FLOPS.
 - **WebGPU backend:** Implement a GPU backend via WebGPU for large kernels and model training where GPU parallelism and memory bandwidth dominate.
 - **Kernel optimizations:** Adopt tiled/blocked matmul, loop unrolling, SIMD intrinsics (in WASM), alignment/padding to avoid false sharing, and an auto-tuning step to pick tile sizes per device.
 - **Benchmarking & profiling:** Add per-worker instrumentation, memory-bandwidth measurements, and automated perf tests to guide optimizations and detect bottlenecks.
