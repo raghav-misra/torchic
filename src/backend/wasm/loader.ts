@@ -17,6 +17,7 @@ export interface KernelExports {
     aColStride: number,
     bRowStride: number,
     bColStride: number,
+    scratchPtr: number,
   ): void;
 
   add(aPtr: number, bPtr: number, outPtr: number, start: number, end: number): void;

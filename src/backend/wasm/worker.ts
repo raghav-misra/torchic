@@ -294,6 +294,40 @@ async function handleOp(
     return;
   }
 
+  // Matmul needs a per-worker private scratch panel for A-packing. Every worker
+  // instance's wasm __stack_pointer starts at the same value in shared memory,
+  // so we can't stack-alloc inside the kernel without workers racing.
+  if (payload.op === "MATMUL") {
+    if (!memoryAllocator) return;
+    const SCRATCH_BYTES_PER_WORKER = 4 * 256 * 4; // MR(4) * KC(256) * sizeof(f32)
+    const scratchSize = numWorkers * SCRATCH_BYTES_PER_WORKER;
+    const scratchOffset = memoryAllocator.allocate(scratchSize);
+
+    const taskId = crypto.randomUUID();
+    const done = new Promise<void>((resolve) => {
+      pendingTasks.set(taskId, { resolve, count: numWorkers });
+    });
+    computePorts.forEach((port, index) => {
+      port.postMessage({
+        type: "EXECUTE_TASK",
+        taskId,
+        op: "MATMUL",
+        inputs: inputs.map((m) => ({ offset: m.offset, size: m.size })),
+        output: { offset: output.offset, size: output.size },
+        params: {
+          ...payload.params,
+          scratchPtr: scratchOffset + index * SCRATCH_BYTES_PER_WORKER,
+        },
+        workerIndex: index,
+        totalWorkers: numWorkers,
+      });
+    });
+    await done;
+    memoryAllocator.free(scratchOffset, scratchSize);
+    if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+    return;
+  }
+
   const taskId = crypto.randomUUID();
   const donePromise = new Promise<void>((resolve) => {
     pendingTasks.set(taskId, { resolve, count: numWorkers });
@@ -411,6 +445,7 @@ function executeKernel(
       aColStride,
       bRowStride,
       bColStride,
+      required(params.scratchPtr, "scratchPtr"),
     );
     return;
   }

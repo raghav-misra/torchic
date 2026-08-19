@@ -14,10 +14,12 @@ export interface OpParams {
   embeddingDim?: number;
   outIndex?: number;
   // Scratch pointers into the shared backend memory, used by kernels that need
-  // shape/stride metadata at execution time (e.g. WASM materialize).
+  // shape/stride metadata at execution time (e.g. WASM materialize) or per-worker
+  // scratch panels (e.g. WASM matmul A-packing).
   ndim?: number;
   shapePtr?: number;
   stridesPtr?: number;
+  scratchPtr?: number;
 }
 
 export interface BufferRegion {
