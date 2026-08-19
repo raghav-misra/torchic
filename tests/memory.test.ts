@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { MemoryAllocator } from "../src/backend/workers/memory";
+import { MemoryAllocator } from "../src/backend/memory";
 
 function makeSAB(bytes: number) {
   return new SharedArrayBuffer(bytes);
@@ -35,7 +35,7 @@ describe("MemoryAllocator", () => {
     // Free all
     for (const off of offsets) alloc.free(off, size);
 
-    // Re-allocate the same count — should succeed without OOM
+    // Re-allocate the same count - should succeed without OOM
     for (let i = 0; i < 4096 / size; i++) {
       expect(() => alloc.allocate(size)).not.toThrow();
     }

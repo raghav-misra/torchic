@@ -1,4 +1,4 @@
-import { MemoryAllocator } from "./memory";
+import { MemoryAllocator } from "../memory";
 import * as elementwise from "./kernels/elementwise";
 import * as matmul from "./kernels/matmul";
 import * as transpose from "./kernels/transpose";

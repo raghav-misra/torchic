@@ -108,13 +108,13 @@ function isStopped() {
 }
 
 function pause() {
-  if (trainState !== TrainState.Running) return console.log("Can't pause — not running.");
+  if (trainState !== TrainState.Running) return console.log("Can't pause - not running.");
   trainState = TrainState.Paused;
   console.log("⏸ Paused. Use __makemore.resume() / __makemore.sample() in the console.");
 }
 
 function resume() {
-  if (trainState !== TrainState.Paused) return console.log("Can't resume — not paused.");
+  if (trainState !== TrainState.Paused) return console.log("Can't resume - not paused.");
   trainState = TrainState.Running;
   resumeResolve?.();
   resumeResolve = null;
@@ -292,7 +292,7 @@ async function makemoreMLP() {
 
     const epochAvgLoss = epochStepCount > 0 ? epochLossSum / epochStepCount : 0;
     console.log(
-      `Epoch ${epoch + 1}/${numEpochs} — avg loss: ${epochAvgLoss.toFixed(6)} — ${epochStepCount} steps`,
+      `Epoch ${epoch + 1}/${numEpochs} - avg loss: ${epochAvgLoss.toFixed(6)} - ${epochStepCount} steps`,
     );
 
     lrValue *= lrDecayRate;

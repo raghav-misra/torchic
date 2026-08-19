@@ -22,7 +22,7 @@ export function embedding_backward(
   start: number,
   end: number,
 ) {
-  // Non-atomic scatter-add — must be dispatched to a single worker
+  // Non-atomic scatter-add - must be dispatched to a single worker
   for (let i = start; i < end; i++) {
     const indexInIndices = Math.floor(i / embeddingDim);
     const offsetInEmbedding = i % embeddingDim;

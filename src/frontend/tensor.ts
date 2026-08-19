@@ -30,7 +30,7 @@ export function flattenInto(arr: NestedArray, out: Float32Array, offset: number)
   return offset;
 }
 
-// Automatic memory management — silently skips if dispatcher is shut down,
+// Automatic memory management - silently skips if dispatcher is shut down,
 // since GC may fire after shutdown.
 const registry = new FinalizationRegistry((id: string) => {
   if (!isDispatcherReady()) return;

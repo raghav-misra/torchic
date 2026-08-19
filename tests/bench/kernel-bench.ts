@@ -51,13 +51,13 @@ function benchAdd(n: number, trials = 20) {
 }
 
 async function main() {
-  console.log("Kernel microbench — matmul and elementwise (Node)");
+  console.log("Kernel microbench - matmul and elementwise (Node)");
 
   const matSizes = [64, 128, 256];
   for (const s of matSizes) {
     const res = benchMatmul(s, s, s, 7);
     console.log(
-      `matmul ${s}x${s}: median ${res.medianMs.toFixed(3)} ms — ${res.gflops.toFixed(3)} GFLOPS`,
+      `matmul ${s}x${s}: median ${res.medianMs.toFixed(3)} ms - ${res.gflops.toFixed(3)} GFLOPS`,
     );
   }
 
@@ -65,7 +65,7 @@ async function main() {
   for (const n of elems) {
     const res = benchAdd(n, 10);
     console.log(
-      `add ${n}: median ${res.medianMs.toFixed(3)} ms — ${Math.round(
+      `add ${n}: median ${res.medianMs.toFixed(3)} ms - ${Math.round(
         res.opsPerSec,
       ).toLocaleString()} ops/sec`,
     );

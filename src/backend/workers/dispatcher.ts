@@ -5,8 +5,9 @@ import {
   CoordinatorResponse,
   ComputeRequest,
 } from "../../shared/types";
+import type { Dispatcher } from "../dispatcher";
 
-export class WorkerDispatcher {
+export class WorkerDispatcher implements Dispatcher {
   private coordinator: TypedWorker<CoordinatorRequest, CoordinatorResponse> | null = null;
   private sab: SharedArrayBuffer | null = null;
   private computeWorkers: Worker[] = [];

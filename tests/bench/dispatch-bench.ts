@@ -70,7 +70,7 @@ async function benchMatmulE2E(m: number, k: number, n: number, threads: number, 
   push(
     `E2E matmul ${m}x${k} * ${k}x${n} with ${threads} threads: median ${median.toFixed(
       3,
-    )} ms — ${gflops.toFixed(3)} GFLOPS`,
+    )} ms - ${gflops.toFixed(3)} GFLOPS`,
   );
   return { m, k, n, threads, medianMs: median, gflops, logs };
 }
