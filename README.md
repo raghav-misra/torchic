@@ -226,26 +226,24 @@ Just for fun, to teach myself how to work with shared-memory parallelism in JS, 
 The table captures timings for executing parallelized matrix multiplication across various thread counts and matrix dimensions.
 
 | Thread Count |     |         Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
-| -----------: | :-: | -----------------------------: | ----------: | ------ |
-| Thread Count |     |         Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
-| -----------: | :-: |    --------------------------: | ----------: | ------ |
-|            1 |     |    $128 \times 128 \times 128$ |       3.470 | 1.209  |
-|              |     |    $256 \times 128 \times 128$ |       6.805 | 1.233  |
-|              |     |    $256 \times 256 \times 256$ |      26.975 | 1.244  |
-|              |     |    $512 \times 512 \times 512$ |     222.045 | 1.209  |
-|            2 |     |    $128 \times 128 \times 128$ |       1.990 | 2.108  |
-|              |     |    $256 \times 128 \times 128$ |       3.880 | 2.162  |
-|              |     |    $256 \times 256 \times 256$ |      14.715 | 2.280  |
-|              |     |    $512 \times 512 \times 512$ |     129.665 | 2.070  |
-|            4 |     |    $128 \times 128 \times 128$ |       1.660 | 2.527  |
-|              |     |    $256 \times 128 \times 128$ |       2.290 | 3.663  |
-|              |     |    $256 \times 256 \times 256$ |       8.930 | 3.757  |
-|              |     |    $512 \times 512 \times 512$ |      87.080 | 3.083  |
-|            8 |     |    $128 \times 128 \times 128$ |       1.505 | 2.787  |
-|              |     |    $256 \times 128 \times 128$ |       2.335 | 3.593  |
-|              |     |    $256 \times 256 \times 256$ |       8.835 | 3.798  |
-|              |     |    $512 \times 512 \times 512$ |      73.570 | 3.649  |
-|              |     | $1024 \times 1024 \times 1024$ |     558.990 | 3.842  |
+| -----------: | :-: | -----------------------------: | ----------: | -----: |
+|            1 |     |    $128 \times 128 \times 128$ |       3.470 |  1.209 |
+|              |     |    $256 \times 128 \times 128$ |       6.805 |  1.233 |
+|              |     |    $256 \times 256 \times 256$ |      26.975 |  1.244 |
+|              |     |    $512 \times 512 \times 512$ |     222.045 |  1.209 |
+|            2 |     |    $128 \times 128 \times 128$ |       1.990 |  2.108 |
+|              |     |    $256 \times 128 \times 128$ |       3.880 |  2.162 |
+|              |     |    $256 \times 256 \times 256$ |      14.715 |  2.280 |
+|              |     |    $512 \times 512 \times 512$ |     129.665 |  2.070 |
+|            4 |     |    $128 \times 128 \times 128$ |       1.660 |  2.527 |
+|              |     |    $256 \times 128 \times 128$ |       2.290 |  3.663 |
+|              |     |    $256 \times 256 \times 256$ |       8.930 |  3.757 |
+|              |     |    $512 \times 512 \times 512$ |      87.080 |  3.083 |
+|            8 |     |    $128 \times 128 \times 128$ |       1.505 |  2.787 |
+|              |     |    $256 \times 128 \times 128$ |       2.335 |  3.593 |
+|              |     |    $256 \times 256 \times 256$ |       8.835 |  3.798 |
+|              |     |    $512 \times 512 \times 512$ |      73.570 |  3.649 |
+|              |     | $1024 \times 1024 \times 1024$ |     558.990 |  3.842 |
 
 The observed limited speedup from 4 → 8 threads is likely due to memory-bandwidth saturation, increased cache pressure when working sets exceed on-chip caches, and the use of logical (hyper) threads beyond available physical cores. The kernel now uses a blocked (tiled) matrix-multiplication approach, where each thread works on cache-sized tiles and accumulates locally, greatly improving data locality and scaling across more cores.
 
@@ -268,28 +266,6 @@ The GFLOPs obviously don't compare to higher-end CPUs with optimized kernels, le
 - **WebGPU backend:** Implement a GPU backend via WebGPU for large kernels and model training where GPU parallelism and memory bandwidth dominate.
 - **Kernel optimizations:** Adopt tiled/blocked matmul, loop unrolling, SIMD intrinsics (in WASM), alignment/padding to avoid false sharing, and an auto-tuning step to pick tile sizes per device.
 - **Benchmarking & profiling:** Add per-worker instrumentation, memory-bandwidth measurements, and automated perf tests to guide optimizations and detect bottlenecks.
-
-## Project Structure
-
-```
-torchic/
-├── src/
-│   ├── index.ts           # Main exports
-│   ├── engine/
-│   │   └── tensor.ts      # Tensor class & autograd
-│   ├── backend/
-│   │   ├── dispatcher.ts  # Main thread ↔ Worker communication
-│   │   ├── memory.ts      # SharedArrayBuffer heap manager
-│   │   └── worker.ts      # Worker thread logic
-│   └── kernels/           # Math implementations
-│       ├── elementwise.ts # Element-wise operations
-│       ├── matmul.ts      # Matrix multiplication
-│       ├── reductions.ts  # Sum, mean operations
-│       └── transpose.ts   # Transpose kernel
-├── tests/
-│   └── test.ts            # Comprehensive test suite
-└── DESIGN.md              # Architecture documentation
-```
 
 ## Examples in Test Suite
 
@@ -315,7 +291,3 @@ npm run dev
 ## License
 
 MIT
-
----
-
-**Note**: This is an educational project demonstrating neural network fundamentals and async compute patterns. For production use cases to run on the web, consider established libraries like TensorFlow.js or ONNX Runtime Web.
