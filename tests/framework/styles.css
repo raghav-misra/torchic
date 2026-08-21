@@ -115,6 +115,7 @@ h1 {
 
 .result {
   margin-top: 12px;
+  overflow-x: auto;
 }
 
 .test-badge {
@@ -147,18 +148,20 @@ h1 {
 }
 
 .bench-table {
-  width: 100%;
   border-collapse: collapse;
   font-family: var(--font-mono);
   font-size: 13px;
   margin-top: 8px;
+  min-width: max-content;
 }
 
 .bench-table th,
 .bench-table td {
-  padding: 6px 10px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--border);
   text-align: right;
+  white-space: pre;
+  vertical-align: top;
 }
 
 .bench-table th:first-child,

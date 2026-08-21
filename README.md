@@ -1,19 +1,18 @@
 # 🔥 torchic
 
-A toy neural network library for the browser that runs on CPU with async execution using SharedArrayBuffer and Web Workers.
+A toy neural network library that runs in the browser across three interchangeable compute backends: JS Web Workers, SIMD Rust compiled to WebAssembly, and WebGPU.
 
 ## Overview
 
-**torchic** lets you write synchronous-looking neural network code in JavaScript while all the heavy computation happens asynchronously on background threads, keeping your UI responsive. It features automatic differentiation (autograd), zero-copy tensor operations, and multi-threaded CPU execution.
+Write sync-looking PyTorch-style code in JavaScript. Everything heavy runs off the main thread — on Web Workers for the CPU backends, on the GPU queue for WebGPU. Includes reverse-mode autograd, one shared-memory heap that all backends allocate against, and zero-copy tensor views.
 
 ### Key Features
 
-- Write standard PyTorch-esque code (`z = x.matmul(w).add(b)`)
-- Math runs on Web Workers, never blocks the main thread
-- Automatic differentiation with reverse-mode backpropagation
-- SharedArrayBuffer means no data copying between threads
-- Custom allocator with automatic garbage collection
-- Zero-copy reshape and transpose operations
+- Three backends behind one `Dispatcher` interface. Peaks on the test laptop: **310 GFLOPS WebGPU / 57 GFLOPS WASM / 3.4 GFLOPS Workers** on `matmul`.
+- Reverse-mode autograd over a dynamic computation graph.
+- One `SharedArrayBuffer` heap shared across all workers, sub-allocated by a segregated free-list with O(1) block recycling.
+- Zero-copy reshape and transpose — views only rewrite strides.
+- Main thread never blocks. Kernels run on Web Workers or the GPU queue; only `.item()` / `.toArray()` await results.
 
 ## Installation
 
@@ -201,9 +200,9 @@ All tensors live in a single `SharedArrayBuffer` (default 256MB). Workers access
 
 ### Memory Management
 
-- Automatic garbage collection using `FinalizationRegistry`
-- First-fit allocator with coalescing for heap management
-- View tensors (reshape/transpose) share memory with parent tensors
+- Automatic garbage collection via `FinalizationRegistry`.
+- Segregated free-list allocator with per-size-class LIFO buckets — most tensor allocations recycle in O(1) since NN workloads reuse identical shapes each iteration.
+- View tensors (reshape/transpose/slice) share memory with the parent; freed views don't touch the parent's storage.
 
 ## Use Cases
 
@@ -216,115 +215,80 @@ Just for fun, to teach myself how to work with shared-memory parallelism in JS, 
 
 ## Backends & Performance
 
-torchic ships two interchangeable compute backends behind the same `Dispatcher` interface. Select one at init time:
+Three interchangeable compute backends behind one dispatcher interface. Pick one at init:
 
 ```ts
-await init({ backend: "workers", threadCount: 4 }); // hand-written JavaScript kernels
-await init({ backend: "wasm",    threadCount: 4 }); // SIMD Rust compiled to WebAssembly
+await init({ backend: "workers", threadCount: 4 }); // JS on Web Workers
+await init({ backend: "wasm",    threadCount: 4 }); // SIMD Rust → WebAssembly
+await init({ backend: "webgpu"                  }); // WGSL compute shaders on the GPU
 ```
 
-Both backends use the **same architecture**: a coordinator worker owns the shared memory + allocator, and `N` compute workers execute row-sliced kernels in parallel over a single `SharedArrayBuffer`. Only the compute step differs.
+`workers` and `wasm` share the same architecture — a coordinator worker owns the shared memory + allocator, and N compute workers execute row-sliced kernels in parallel over one `SharedArrayBuffer`. Only the compute step differs. `webgpu` is single-dispatch from the main thread; GPU parallelism lives inside the shader (workgroups + threads), not in JS.
 
-- **CPU-focused**: multi-threaded execution, no GPU
-- **Best for**: small to medium models (MLPs, small transformers)
-- **Not a replacement**: for GPU-accelerated libraries on large models
-- **Browser requirements**: SharedArrayBuffer (COOP/COEP headers)
+### `matmul` GFLOPS
 
-### `matmul` – Workers backend
+Higher is better. `workers` and `wasm` at 8 threads (peak). `webgpu` is single-dispatch and thread-count-invariant.
 
-Blocked (BLOCK=32) JavaScript kernels dispatched across N worker threads. Values are medians over 5-7 timed trials after warmup.
+| Backend | 128³ | 512³ | 1024³ | 2048³ |
+| ---: | ---: | ---: | ---: | ---: |
+| workers | 0.68 | 2.72 | 3.09 | 3.15 |
+| wasm | 6.40 | 25.13 | **57.73** | 47.38 |
+| webgpu | 1.10 | 66.69 | 354.08 | **310** |
 
-| Thread Count |     |         Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
-| -----------: | :-: | -----------------------------: | ----------: | -----: |
-|            1 |     |    $128 \times 128 \times 128$ |        6.70 |  0.626 |
-|              |     |    $512 \times 512 \times 512$ |      370.41 |  0.725 |
-|              |     | $1024 \times 1024 \times 1024$ |     3009.09 |  0.714 |
-|            2 |     |    $128 \times 128 \times 128$ |        4.03 |  1.042 |
-|              |     |    $512 \times 512 \times 512$ |      200.55 |  1.339 |
-|              |     | $1024 \times 1024 \times 1024$ |     1537.07 |  1.397 |
-|            4 |     |    $128 \times 128 \times 128$ |        3.43 |  1.221 |
-|              |     |    $512 \times 512 \times 512$ |      105.95 |  2.533 |
-|              |     | $1024 \times 1024 \times 1024$ |      933.26 |  2.301 |
-|            8 |     |    $128 \times 128 \times 128$ |        2.13 |  1.969 |
-|              |     |    $512 \times 512 \times 512$ |       84.28 |  3.185 |
-|              |     | $1024 \times 1024 \times 1024$ |      639.23 |  3.360 |
+Peak: **310 GFLOPS on WebGPU** (2048³), **57 GFLOPS on WASM** (1024³ @ 8t), **3.4 GFLOPS on Workers** (1024³ @ 8t).
 
-### `matmul` – Rust/WASM backend
+### Speedups vs Workers @ 8t
 
-Rust kernels compiled to WebAssembly with `+simd128` and shared memory (`--import-memory --shared-memory`). Same coordinator + N compute worker pipeline; the compute workers instantiate the same compiled module against one shared `WebAssembly.Memory`.
+| Shape | wasm | webgpu |
+| ---: | ---: | ---: |
+| $128^3$ | 9.4× | 1.6× |
+| $512^3$ | 9.2× | 24.5× |
+| $1024^3$ | 18.7× | **114.6×** |
+| $2048^3$ | 15.0× | **98.4×** |
 
-| Thread Count |     |         Shape (A: MxK, B: KxN) | Median (ms) | GFLOPS |
-| -----------: | :-: | -----------------------------: | ----------: | -----: |
-|            1 |     |    $128 \times 128 \times 128$ |        0.70 |  6.035 |
-|              |     |    $512 \times 512 \times 512$ |       39.77 |  6.750 |
-|              |     | $1024 \times 1024 \times 1024$ |      333.55 |  6.438 |
-|            2 |     |    $128 \times 128 \times 128$ |        0.58 |  7.170 |
-|              |     |    $512 \times 512 \times 512$ |       20.31 | 13.214 |
-|              |     | $1024 \times 1024 \times 1024$ |      191.55 | 11.211 |
-|            4 |     |    $128 \times 128 \times 128$ |        0.55 |  7.696 |
-|              |     |    $512 \times 512 \times 512$ |       11.37 | 23.609 |
-|              |     | $1024 \times 1024 \times 1024$ |       96.70 | 22.208 |
-|            8 |     |    $128 \times 128 \times 128$ |        0.56 |  7.557 |
-|              |     |    $512 \times 512 \times 512$ |        9.76 | 27.504 |
-|              |     | $1024 \times 1024 \times 1024$ |       80.80 | 26.576 |
+Compound (`webgpu / workers`) hits ~100× at 1024³+.
 
-### Comparative analysis
+### How each backend gets its numbers
 
-WASM is **~9× faster than the workers backend at the same thread count** across all sizes. Single-thread WASM already beats 8-thread workers on all sizes. On 1024³ the peak is 27 GFLOPS on WASM vs 3.4 GFLOPS on workers.
+**Workers.** Blocked matmul (BLOCK=32), row-parallel dispatch, two-phase SUM reduce, static work partitioning. Pure JavaScript, no SIMD access — V8's TurboFan sometimes auto-vectorizes tight typed-array loops but you can't rely on it. Ceiling: ~1 GFLOPS per thread on this CPU.
 
-Speedup ratios (`wasm / workers`, same thread count):
+**WASM.** Same architecture as workers, plus:
 
-|        Shape |    1t |    2t |    4t |    8t |
-| -----------: | ----: | ----: | ----: | ----: |
-|    $128^3$   | 9.63× | 6.88× | 6.30× | 3.84× |
-|    $512^3$   | 9.31× | 9.87× | 9.32× | 8.63× |
-|    $1024^3$  | 9.02× | 8.02× | 9.65× | 7.91× |
+- SIMD128 (`+simd128`) — `f32x4_add`/`mul`/`max`, `v128_load`/`store` on binary elementwise ops, reductions, fill, copy, matmul.
+- 4×8 register-blocked matmul microkernel. Eight `f32x4` accumulators live in wasm locals; LLVM lowers them to CPU SIMD registers. Accumulator never touches memory during the k-loop.
+- K-blocked A-panel packing. For each k-block of 256, pack `A[i:i+4, k:k+256]` contiguously into a scratch region so the microkernel's 4 A-loads per k-step hit adjacent bytes. Doubled 1024³ throughput on its own.
+- Shared `WebAssembly.Memory({ shared: true })` imported by the module. All workers share one SAB-backed linear memory; kernels operate at raw byte offsets — no copy across the JS/WASM boundary.
+- `no_std` cdylib, LTO, `opt-level = 3`, `codegen-units = 1`, `panic = "abort"`. Zero runtime.
 
-**Where the gap comes from.** JS engines have no SIMD API – the `SIMD.js` proposal was withdrawn from ECMAScript in 2019 in favor of WebAssembly SIMD. V8's TurboFan does opportunistic auto-vectorization on tight typed-array loops sometimes, but you can't rely on it. Every workers-backend `f32 add` runs one lane at a time. Every wasm-backend `f32 add` runs four (`f32x4_add`). Multi-threading is symmetric across the two backends, so the wasm win is entirely per-thread work.
+**WebGPU.** 20+ WGSL compute shaders, one storage buffer heap sub-allocated by the same allocator as the other backends. Matmul is 16×16 tiled with workgroup shared memory and cooperative loads; barriers separate load and FMA passes. Elementwise ops are one thread per output element, 256-thread workgroups. Reused the same `Dispatcher` interface, same `Tensor` frontend — autograd required zero changes.
 
-#### Workers-side optimizations
+We tried a register-blocked WGSL variant (each thread computing 4×4 outputs, workgroup covering 64×64) — the WGSL analogue of what worked in Rust. It **regressed 2×** due to 16-way shared-memory bank conflicts on the packed-A reads. Reverted. Fixing it needs `vec4` loads + transposed thread mapping + 128×128 tiles, which is a research-scale problem — WebGPU GEMM kernels in tinygrad and WebLLM took engineer-months to tune.
 
-- **Blocked matmul** (BLOCK=32) to keep the inner block in L1 across k-iterations.
-- **Row-parallel dispatch** – each worker owns a contiguous row range of the output, avoiding cache-line contention on writes.
-- **Two-phase SUM reduce** – partial sums per worker written to per-worker scratch slots, then reduced by worker 0. No cross-thread synchronization during the partial phase.
-- **Segregated free-list allocator** with per-size-class LIFO buckets. Because NN workloads reuse identical tensor shapes each iteration, most allocations recycle a block in O(1).
-- **Static work partitioning** – no runtime work-stealing or queueing during a kernel.
-- **Zero-copy views**: reshape/transpose only rewrite strides; the data stays put in the shared buffer.
+### Notes on the numbers
 
-#### Rust/WASM-side optimizations
+**128³ is dispatch-overhead-dominated.** WebGPU actually loses to WASM here — ~200µs of encode + `mapAsync` roundtrip beats ~5µs of GPU compute. Real workloads don't touch 128³ often.
 
-Everything above, plus:
+**WASM's dip at 2048³** (57 → 47 GFLOPS) is L2 cache eviction. The 2048² working set doesn't fit in the 256 KB per-core L2 on this CPU. Fixing it needs a second layer of blocking + panel packing that we haven't done.
 
-- **SIMD128 target feature** (`+simd128`) – `f32x4_add`, `f32x4_mul`, `f32x4_max`, `v128_load`/`store` on the hot paths for all binary elementwise ops, reductions, fill, copy, and matmul.
-- **Register-blocked 4×8 matmul microkernel.** Eight `f32x4` accumulators live in wasm locals (which LLVM lowers to CPU SIMD registers), so the accumulator never touches memory during the k-loop. Amortizes A/B load cost across 32 output floats per pass.
-- **8 independent FMA chains** in the microkernel – 4 output rows × 2 output col-lanes – giving modern CPUs the parallel dependency chains they need to actually issue 2-4 SIMD ops per cycle. This is what pushed matmul from ~10 GFLOPS to ~27 GFLOPS at 8 threads.
-- **Shared `WebAssembly.Memory({ shared: true })`** – the module imports memory rather than declaring its own, so the coordinator + N compute workers all share one `SharedArrayBuffer`-backed linear memory. Kernels read/write tensor bytes directly at their JS-assigned byte offsets – no copy, no serialization across the JS/WASM boundary.
-- **`no_std` cdylib, LTO, `opt-level = 3`, `codegen-units = 1`, `panic = "abort"`** – maximum inlining, no runtime, minimal binary.
+**WebGPU on 2070 Max-Q under Chrome default power state.** ~310 GFLOPS steady on 2048³ (single-thread hot-loop measurements, 50 iterations, median). Chrome's `powerPreference: high-performance` hint is currently ignored on Windows ([crbug.com/369219127](https://crbug.com/369219127)), so the dGPU sits at ~50% clocks. Setting NVIDIA Control Panel → "Prefer maximum performance" for chrome.exe unlocks the full clock and roughly doubles this number. Desktop GPUs don't have this asymmetry.
 
-#### Scaling behavior
+### Test machine
 
-Both backends scale roughly linearly from 1t → 4t, then flatten between 4t → 8t. The test machine has 6 physical cores + 12 logical threads. At 4 threads we still have room; at 8 threads two logical threads share each physical core's SIMD units and cache. On the largest workload (1024³), the wasm backend additionally starts hitting main-memory bandwidth: B is streamed through cache each output tile, and DRAM caps the win.
-
-The 128³ case underperforms across the board because dispatch overhead (worker messaging, task promise resolution) dominates the actual compute. This is a benchmark artifact – real training loops don't touch 128³ much.
-
-### Test machine / environment
-
-| Field                            | Value                                                |
-| -------------------------------- | ---------------------------------------------------- |
-| CPU model                        | Intel(R) Core(TM) i7-10750H CPU @ 2.60GHz (2.59 GHz) |
-| Physical cores / Logical threads | 6 core / 12 logical processors                       |
-| Base / boost frequency           | 2.60 GHz (base) / 5.00 GHz (boost)                   |
-| RAM                              | 16.0 GB (15.8 GB usable)                             |
-| OS                               | Windows 11 Version 25H2 (Build 26200.7171)           |
-| Browser (name + version)         | Microsoft Edge 142.0.3595.94                         |
+| | |
+| --- | --- |
+| CPU | Intel Core i7-10750H (6 cores / 12 threads, 2.6 / 5.0 GHz) |
+| GPU | NVIDIA RTX 2070 Max-Q |
+| RAM | 16 GB |
+| OS | Windows 11 |
+| Browser | Microsoft Edge 142 |
 
 ## Future Improvements
 
-- **WebGPU backend:** GPU backend via WebGPU for large kernels and model training where GPU parallelism and memory bandwidth dominate.
-- **Further wasm matmul tuning:** K-blocking + A-panel packing to cure the 4t → 8t stall on very large matmuls; SIMD polynomial `exp`/`log`/`tanh` for softmax-heavy workloads.
-- **Broadcast fast paths in wasm:** currently the coordinator only packs shape/strides for `MATERIALIZE`; the same pattern would let broadcast add/sub/mul/div stay in the SIMD fast path instead of throwing.
-- **Backend-parameterized test suite:** run the existing kernel tests against both backends automatically.
-- **Benchmarking & profiling:** per-worker instrumentation, memory-bandwidth measurements, and automated perf tests to guide the next optimization.
+- **Better WebGPU matmul.** `vec4<f32>` loads, transposed thread mapping to fix bank conflicts, 128×128 workgroup tiles with each thread computing 8×8 outputs. Target: 1-2 TFLOPS on 2070-class GPUs.
+- **Second-level cache blocking in WASM.** Fix the 2048³ dip by blocking B-panels for L2, not just L1.
+- **SIMD polynomial `exp`/`log`/`tanh`.** Currently scalar via `libm`. A 5th-order minimax poly would give 2-4× on softmax-heavy code.
+- **Broadcast fast paths for WASM/WebGPU elementwise.** Currently the coordinator only packs shape/strides for `MATERIALIZE`; the same pattern would let broadcast add/sub/mul/div stay in the SIMD fast path.
+- **Backend-parameterized test suite.** Run the existing kernel tests against all three backends automatically.
 
 ## Tests, benches, and demos
 

@@ -1,5 +1,6 @@
 import { WorkerDispatcher } from "../backend/workers/dispatcher";
 import { WasmDispatcher } from "../backend/wasm/dispatcher";
+import { WebGPUDispatcher } from "../backend/webgpu/dispatcher";
 import type { Dispatcher } from "../backend/dispatcher";
 
 let dispatcher: Dispatcher | null = null;
@@ -16,7 +17,7 @@ export function isDispatcherReady(): boolean {
 }
 
 interface InitOptions {
-  backend: "workers" | "wasm";
+  backend: "workers" | "wasm" | "webgpu";
   threadCount?: number;
   memorySizeMB?: number;
 }
@@ -30,6 +31,12 @@ export async function init(options: InitOptions) {
   }
   if (options.backend === "wasm") {
     const d = new WasmDispatcher();
+    await d.init(options.threadCount, options.memorySizeMB);
+    dispatcher = d;
+    return;
+  }
+  if (options.backend === "webgpu") {
+    const d = new WebGPUDispatcher();
     await d.init(options.threadCount, options.memorySizeMB);
     dispatcher = d;
     return;

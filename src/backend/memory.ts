@@ -38,8 +38,9 @@ export class MemoryAllocator {
   // Fallback sorted free-list for allocations > MAX_BUCKET_SIZE
   private largeList: FreeBlock[] = [];
 
-  constructor(buffer: SharedArrayBuffer) {
-    this.totalSize = buffer.byteLength;
+  constructor(sizeOrBuffer: number | SharedArrayBuffer | ArrayBuffer) {
+    this.totalSize =
+      typeof sizeOrBuffer === "number" ? sizeOrBuffer : sizeOrBuffer.byteLength;
     this.buckets = Array.from({ length: NUM_BUCKETS }, () => []);
     this.largeList = [{ offset: 0, size: this.totalSize }];
   }
