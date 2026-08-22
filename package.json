@@ -1,15 +1,31 @@
 {
   "name": "torchic",
   "version": "0.1.0",
-  "description": "A toy neural network library with async execution on SharedArrayBuffer",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "description": "In-browser neural network library with reverse-mode autograd and three interchangeable compute backends: JS Web Workers, SIMD Rust/WebAssembly, and WebGPU.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:lib": "tsc -p tsconfig.build.json && node scripts/build-lib.mjs",
+    "build:wasm": "cargo build --release --manifest-path crates/torchic-kernels/Cargo.toml && node scripts/copy-wasm.mjs",
+    "prepublishOnly": "npm run build:wasm && npm run build:lib",
     "preview": "vite preview",
     "test": "vitest",
-    "build:wasm": "cargo build --release --manifest-path crates/torchic-kernels/Cargo.toml && node scripts/copy-wasm.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -18,12 +34,27 @@
   "keywords": [
     "neural-network",
     "autograd",
+    "tensor",
+    "webgpu",
+    "wasm",
+    "webassembly",
+    "simd",
     "sharedarraybuffer",
+    "deep-learning",
+    "machine-learning",
+    "browser",
     "typescript"
   ],
-  "author": "",
+  "author": "Raghav Misra <raghav.m2014@gmail.com>",
   "license": "MIT",
-  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raghav-misra/torchic.git"
+  },
+  "bugs": {
+    "url": "https://github.com/raghav-misra/torchic/issues"
+  },
+  "homepage": "https://github.com/raghav-misra/torchic#readme",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@webgpu/types": "^0.1.72",
@@ -36,3 +67,4 @@
     "vitest": "^1.0.0"
   }
 }
+

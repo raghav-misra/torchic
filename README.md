@@ -15,7 +15,52 @@ Write sync-looking PyTorch-style code in JavaScript. Compute runs off the main t
 
 ## Installation
 
-Literally uninstallable at the moment
+```bash
+npm install torchic
+```
+
+torchic is a browser library. It requires:
+
+1. A bundler that understands Vite-style asset imports (`?url`, `?raw`) and the `new Worker(new URL(..., import.meta.url), { type: "module" })` pattern. Vite works out of the box; Webpack 5, Rollup, and Parcel work with their asset-module features enabled.
+2. Cross-origin isolation for `SharedArrayBuffer`. The dev/prod server must send these two headers on every response:
+   ```
+   Cross-Origin-Opener-Policy: same-origin
+   Cross-Origin-Embedder-Policy: require-corp
+   ```
+3. A recent Chromium-based browser for the WebGPU backend (Chrome/Edge 113+ on supported hardware). The `workers` and `wasm` backends run anywhere modern.
+
+### Vite setup
+
+`vite.config.ts`:
+
+```ts
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  server: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
+  },
+  worker: { format: "es" },
+  optimizeDeps: { exclude: ["torchic"] },
+});
+```
+
+Then in your app:
+
+```ts
+import { Tensor, init } from "torchic";
+
+await init({ backend: "wasm", threadCount: 4 });
+
+const a = Tensor.fromData([1, 2, 3, 4, 5, 6], [2, 3]);
+const b = Tensor.fromData([7, 8, 9, 10, 11, 12], [3, 2]);
+const c = a.matmul(b);
+
+console.log(await c.toArray()); // Float32Array [58, 64, 139, 154]
+```
 
 ## Quick Start
 
