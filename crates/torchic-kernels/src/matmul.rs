@@ -5,8 +5,8 @@ const NR: usize = 8;
 const KC: usize = 256;
 
 // Pack A[i:i+MR, pc:pc+kc] into ap laid out as Ap[p*MR + r].
-// The MR values for a given k are now adjacent in memory so the microkernel
-// can grab them with a single 128-bit access per row-splat.
+// The MR values for a given k end up adjacent in memory so the microkernel
+// grabs them with a single 128-bit access per row-splat.
 #[inline]
 unsafe fn pack_a(
     a: *const f32,
@@ -134,12 +134,11 @@ unsafe fn scalar_tile(
 // SIMD path packs an MR x KC panel of A per K-block so the microkernel
 // hits fully-contiguous, cache-hot A. Non-SIMD B and right/bottom edges
 // fall back to a scalar cleanup that preserves arbitrary strides.
-#[no_mangle]
 //
-// scratch: caller-provided scratch region of at least MR*KC f32s, private to
-// this call (each worker gets its own slice). We can't stack-alloc it because
-// every worker instance's wasm __stack_pointer starts at the same value, so
-// they'd race on the same region of shared linear memory.
+// scratch: caller-provided region of at least MR*KC f32s, private to this
+// call. Can't stack-alloc it because every worker instance's wasm
+// __stack_pointer starts at the same value, so they'd race on the same region
+// of shared linear memory.
 #[no_mangle]
 pub unsafe extern "C" fn matmul(
     a: *const f32,

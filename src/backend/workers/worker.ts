@@ -195,7 +195,6 @@ async function handleOp(
     return;
   }
 
-  // Type narrowing: the guard above ensures all entries are defined
   const inputs = inputMetas as TensorMetadata[];
   const output = outputMeta;
 

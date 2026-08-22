@@ -1,5 +1,5 @@
 // Row-parallel 2D softmax. One thread per row.
-// Shared uniform struct — softmax uses p0/p1, softmax_backward uses p0/p1/p2.
+// Shared uniform struct: softmax uses p0/p1, softmax_backward uses p0/p1/p2.
 
 struct SoftmaxU {
   p0: u32,   // softmax: input      | softmax_backward: output

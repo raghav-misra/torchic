@@ -30,7 +30,7 @@ export async function requestContext(): Promise<WebGPUContext> {
   const device = await adapter.requestDevice({ requiredLimits });
 
   device.lost.then((info) => {
-    // "destroyed" is what device.destroy() fires — not an error path.
+    // device.destroy() fires this; not an error path.
     if (info.reason === "destroyed") return;
     console.error("WebGPU device lost:", info.reason, info.message);
   });

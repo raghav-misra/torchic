@@ -15,7 +15,7 @@ export class WasmDispatcher implements Dispatcher {
     if (this.coordinator) return;
 
     // Lazy so ?url resolution of kernels.wasm only happens when the WASM backend
-    // is actually selected; otherwise Vitest / dev builds without the artifact fail.
+    // is selected; otherwise Vitest / dev builds without the artifact fail.
     const { compileKernels, createSharedMemory } = await import("./loader");
 
     const [module, memory] = await Promise.all([

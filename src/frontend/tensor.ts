@@ -30,8 +30,7 @@ export function flattenInto(arr: NestedArray, out: Float32Array, offset: number)
   return offset;
 }
 
-// Automatic memory management - silently skips if dispatcher is shut down,
-// since GC may fire after shutdown.
+// GC may fire after shutdown; skip freeing if there's no dispatcher.
 const registry = new FinalizationRegistry((id: string) => {
   if (!isDispatcherReady()) return;
   getDispatcher().free(id);
@@ -80,7 +79,6 @@ export class Tensor {
   requiresGrad: boolean;
   grad: Tensor | null = null;
 
-  // Graph for Autograd
   op: string | null = null;
   prev: Tensor[] = [];
   params: OpParams = {};
@@ -93,7 +91,6 @@ export class Tensor {
     this.offset = offset;
     this.requiresGrad = requiresGrad;
 
-    // Register for automatic cleanup when this JS object is GC'd
     registry.register(this, this.id, this);
 
     if (_activeTracking) {
@@ -480,7 +477,6 @@ export class Tensor {
   }
 
   private backwardImpl() {
-    // 1. Topological Sort
     const topo: Tensor[] = [];
     const visited = new Set<string>();
 
@@ -494,10 +490,8 @@ export class Tensor {
     };
     buildTopo(this);
 
-    // 2. Initialize Grad
     this.grad = Tensor.create(this.shape, false, "FILL", { value: 1.0 });
 
-    // 3. Reverse Pass
     for (let i = topo.length - 1; i >= 0; i--) {
       const v = topo[i];
       if (!v.grad) continue;
@@ -521,7 +515,6 @@ export class Tensor {
       } else if (v.op === "RELU") {
         const [a] = v.prev;
         if (a.requiresGrad) {
-          // RELU_BACKWARD: gradInput = (input > 0) ? gradOutput : 0
           const outId = getDispatcher().nextTensorId();
           getDispatcher().allocate(outId, a.numElements() * 4);
           getDispatcher().runOp("RELU_BACKWARD", [a.id, v.grad.id], outId, {
@@ -537,11 +530,10 @@ export class Tensor {
       } else if (v.op === "TANH") {
         const [a] = v.prev;
         if (a.requiresGrad) {
-          // Use a dedicated TANH_BACKWARD kernel to compute gradInput = gradOutput * (1 - output^2)
+          // gradInput = gradOutput * (1 - output^2); inputs: [output, gradOutput]
           const gradId = getDispatcher().nextTensorId();
           const size = a.numElements() * 4;
           getDispatcher().allocate(gradId, size);
-          // inputs: [output (tanh(a)), gradOutput]
           getDispatcher().runOp("TANH_BACKWARD", [v.id, v.grad.id], gradId);
           const gradTensor = new Tensor(gradId, a.shape, false);
           a.addGrad(gradTensor);
@@ -552,7 +544,6 @@ export class Tensor {
       } else if (v.op === "SOFTMAX") {
         const [a] = v.prev;
         if (a.requiresGrad) {
-          // Use dedicated SOFTMAX_BACKWARD kernel which expects [output, gradOutput]
           const gradId = getDispatcher().nextTensorId();
           const size = a.numElements() * 4;
           getDispatcher().allocate(gradId, size);
@@ -608,7 +599,6 @@ export class Tensor {
             newShape.splice(axis, 0, 1);
             grad = grad.reshape(newShape);
           }
-          // Broadcast to a.shape by adding to zeros
           const zeros = Tensor.zeros(a.shape);
           const expanded = zeros.add(grad);
           a.addGrad(expanded);
@@ -654,12 +644,12 @@ export class Tensor {
 
     let out = g;
 
-    // 1. Handle extra dimensions (e.g. [2, 3] -> [3])
+    // Extra dims (e.g. [2, 3] -> [3])
     while (out.shape.length > this.shape.length) {
       out = out.sum(0, false);
     }
 
-    // 2. Handle broadcasted dimensions (e.g. [1, 3] vs [2, 3])
+    // Broadcasted dims (e.g. [1, 3] vs [2, 3])
     for (let i = 0; i < this.shape.length; i++) {
       if (this.shape[i] === 1 && out.shape[i] !== 1) {
         out = out.sum(i, true);
@@ -701,8 +691,6 @@ export class Tensor {
     const input = this.materialize();
 
     const outShape = input.shape.filter((_, i) => i !== axis);
-    // If keepDim is true, we want [d0, 1, d2] but the underlying data is flat [d0*d2]
-    // The Tensor shape property handles the view.
     const finalShape = keepDim ? input.shape.map((s, i) => (i === axis ? 1 : s)) : outShape;
 
     const outId = getDispatcher().nextTensorId();

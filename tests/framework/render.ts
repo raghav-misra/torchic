@@ -82,7 +82,7 @@ function makeTestRunner(suite: TestSuite, container: HTMLElement) {
 
     badge.className = `test-badge ${result.pass ? "pass" : "fail"}`;
     badge.textContent = result.message
-      ? `${label}: ${result.pass ? "PASS" : "FAIL"} – ${result.message}`
+      ? `${label}: ${result.pass ? "PASS" : "FAIL"} (${result.message})`
       : `${label}: ${result.pass ? "PASS" : "FAIL"}`;
   };
 }

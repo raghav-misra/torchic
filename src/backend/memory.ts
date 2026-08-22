@@ -1,15 +1,13 @@
 // Segregated free-list allocator.
 //
 // Small allocations (≤ MAX_BUCKET_SIZE) are rounded up to the next power-of-2
-// and served from per-size-class LIFO stacks – O(1) alloc and free.
-// Tensor workloads are highly repetitive (same shapes every iteration),
-// so recycled blocks almost always satisfy the next request without touching
-// the fallback path.
+// and served from per-size-class LIFO stacks: O(1) alloc and free.
+// NN workloads reuse the same tensor shapes each iteration, so recycled
+// blocks satisfy most requests without falling through to the large path.
 //
 // Large allocations fall back to a coalescing sorted free-list (first-fit).
-// Because most traffic hits the buckets, this list stays short.
 
-const MIN_BUCKET_BITS = 2; // 4 bytes – one Float32
+const MIN_BUCKET_BITS = 2; // 4 bytes = one Float32
 const MAX_BUCKET_BITS = 20; // 1 MiB
 const NUM_BUCKETS = MAX_BUCKET_BITS - MIN_BUCKET_BITS + 1;
 
@@ -31,7 +29,7 @@ interface FreeBlock {
 export class MemoryAllocator {
   private totalSize: number;
 
-  // Segregated buckets – index i holds blocks of size 2^(i + MIN_BUCKET_BITS).
+  // Segregated buckets: index i holds blocks of size 2^(i + MIN_BUCKET_BITS).
   // Each bucket is a stack of byte-offsets (LIFO).
   private buckets: number[][];
 
@@ -60,8 +58,8 @@ export class MemoryAllocator {
     if (aligned <= 1 << MAX_BUCKET_BITS) {
       const bucket = sizeClassIndex(aligned);
       const bucketSize = 1 << (bucket + MIN_BUCKET_BITS);
-      // For allocations that were rounded up, `size` was the original request
-      // but we allocated `bucketSize`. Return at the bucket granularity.
+      // Rounded-up allocations return at bucket granularity, not the caller's
+      // original size.
       if (aligned <= bucketSize) {
         this.buckets[bucket].push(offset);
         return;
@@ -79,7 +77,7 @@ export class MemoryAllocator {
       return stack.pop() as number;
     }
 
-    // Nothing recycled – carve from the large free-list
+    // Nothing recycled; carve from the large free-list
     const bucketSize = 1 << (bucket + MIN_BUCKET_BITS);
     return this.allocLarge(bucketSize);
   }

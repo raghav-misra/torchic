@@ -32,17 +32,13 @@ export function sum_axis(
   const dimSize = shape[axis];
   const dimStride = strides[axis];
 
-  // Pre-calculate strides for the output dimensions (skipping the reduction axis)
-  // We map the flat output index 'i' back to the input offset.
-  // To do this efficiently, we need to know which input dimension each "output dimension" corresponds to.
-
-  // Construct a list of (stride, size) for the dimensions that remain
+  // (stride, size) for the non-reduction dims, innermost first, so decomposing
+  // a flat output index i gives the corresponding input offset.
   const outDims: { stride: number; size: number }[] = [];
   for (let d = shape.length - 1; d >= 0; d--) {
     if (d === axis) continue;
     outDims.push({ stride: strides[d], size: shape[d] });
   }
-  // outDims is reversed (innermost first), which matches how we decompose the index
 
   for (let i = start; i < end; i++) {
     let inputOffset = 0;

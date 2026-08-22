@@ -1,8 +1,3 @@
-// Matrix multiplication kernel
-// C = A * B
-// A: M x K
-// B: K x N
-// C: M x N
 export function matmul(
   a: Float32Array,
   b: Float32Array,
@@ -15,7 +10,6 @@ export function matmul(
   stridesA?: number[],
   stridesB?: number[],
 ) {
-  // Blocked/tiled matrix multiplication for improved cache locality and scaling
   const BLOCK_SIZE = 32;
   const aRowStride = stridesA ? stridesA[0] : k;
   const aColStride = stridesA ? stridesA[1] : 1;
@@ -28,11 +22,10 @@ export function matmul(
       const jMax = Math.min(j0 + BLOCK_SIZE, n);
       for (let p0 = 0; p0 < k; p0 += BLOCK_SIZE) {
         const pMax = Math.min(p0 + BLOCK_SIZE, k);
-        // For each block, do standard matmul
         for (let i = i0; i < iMax; i++) {
           const aRowBase = i * aRowStride;
           const outRowBase = i * n;
-          // Only zero output row once per block
+          // Zero the output row once per (i, j) block, on the first k-block.
           if (p0 === 0) {
             for (let j = j0; j < jMax; j++) {
               out[outRowBase + j] = 0;

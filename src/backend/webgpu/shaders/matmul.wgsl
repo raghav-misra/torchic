@@ -5,7 +5,7 @@
 // FMAs each from shared memory.
 //
 // A register-blocked variant (each thread producing a 4x4 output block) was
-// tried and lost to this version — 16-way bank conflicts on shared reads
+// tried and lost to this version. 16-way bank conflicts on shared reads
 // outweighed the theoretical arithmetic-intensity win. Getting past this
 // version on Turing needs vec4 loads + transposed thread mapping + 128x128
 // tiles, which is significant shader engineering.

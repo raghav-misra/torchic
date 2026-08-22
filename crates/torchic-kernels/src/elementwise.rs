@@ -234,7 +234,7 @@ fn xorshift32(state: &mut u32) -> u32 {
 
 #[inline(always)]
 fn next_unit(state: &mut u32) -> f32 {
-    // (0, 1] – avoid 0 so log() in Box-Muller stays finite
+    // (0, 1]: avoid 0 so log() in Box-Muller stays finite
     (xorshift32(state) as f32 + 1.0) / 4294967297.0
 }
 

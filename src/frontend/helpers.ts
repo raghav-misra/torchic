@@ -19,7 +19,6 @@ export function crossEntropy(input: Tensor, target: Tensor): Tensor {
   if (target.shape.length === 1 || (target.shape.length === 2 && target.shape[1] === 1)) {
     const C = input.shape[1];
 
-    // Build identity matrix [C, C] as Float32Array (diagonal ones)
     const idData = new Float32Array(C * C);
     for (let i = 0; i < C; i++) idData[i * C + i] = 1;
 

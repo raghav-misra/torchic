@@ -89,11 +89,11 @@ async function runMatmul(threads: number, { log }: RunContext): Promise<BenchMet
 }
 
 defineBench({
-  name: "Matmul — Workers vs WASM vs WebGPU (GFLOPS)",
+  name: "Matmul: Workers vs WASM vs WebGPU (GFLOPS)",
   paramName: "threads",
   params: [1, 2, 4, 8],
   description:
-    "E2E matmul on all three backends. WebGPU value is cached per size — thread count doesn't affect it.",
+    "E2E matmul on all three backends. WebGPU value is cached per size; thread count doesn't affect it.",
   highlight: SIZES.map(([m]) => `${m}³ speedups`),
   runner: runMatmul,
 });
