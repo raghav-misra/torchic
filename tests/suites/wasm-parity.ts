@@ -14,9 +14,16 @@ interface Results {
   exp: Float32Array;
   log: Float32Array;
   matmul: Float32Array;
+  matmul_odd_n: Float32Array;
+  broadcast_add_row27: Float32Array;
+  matmul_add_chain: Float32Array;
   transpose: Float32Array;
   softmax: Float32Array;
   sum: number;
+  sum_axis_last: Float32Array;
+  sum_axis_first: Float32Array;
+  broadcast_mul_scalar: Float32Array;
+  broadcast_add_row: Float32Array;
 }
 
 async function runOps(backend: Backend, threads: number): Promise<Results> {
@@ -30,6 +37,37 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
   const a = Tensor.fromData(Array.from(aData), [64, 64]);
   const b = Tensor.fromData(Array.from(bData), [64, 64]);
 
+  const scalar = Tensor.fromData([0.5], [1]);
+  const rowVec = Tensor.fromData(
+    Array.from({ length: 64 }, (_, i) => Math.sin(i * 0.31)),
+    [1, 64],
+  );
+
+  // The [256, 200] * [200, 27] shape from makemore's hidden -> logits matmul.
+  // n=27 doesn't divide by NR=8, exercises SIMD + scalar-tail path.
+  const mmA = Tensor.fromData(
+    Array.from({ length: 256 * 200 }, (_, i) => Math.sin(i * 0.017) * 0.01),
+    [256, 200],
+  );
+  const mmB = Tensor.fromData(
+    Array.from({ length: 200 * 27 }, (_, i) => Math.cos(i * 0.023) * 0.01),
+    [200, 27],
+  );
+
+  // Broadcast add of a bias row (shape [1, 27]) into the [256, 27] output.
+  // Same pattern as `logits = matmul + bout` in makemore.
+  const wide = Tensor.fromData(
+    Array.from({ length: 256 * 27 }, (_, i) => Math.sin(i * 0.03) * 0.05),
+    [256, 27],
+  );
+  const rowBias = Tensor.fromData(
+    Array.from({ length: 27 }, (_, i) => Math.cos(i * 0.19) * 0.1),
+    [1, 27],
+  );
+
+  // End-to-end makemore-shaped chain that combines matmul + broadcast add.
+  const chain = await mmA.matmul(mmB).add(rowBias).toArray();
+
   const results = {
     add: await a.add(b).toArray(),
     sub: await a.sub(b).toArray(),
@@ -40,9 +78,16 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
     exp: await a.exp().toArray(),
     log: await a.mul(a).log().toArray(), // avoid log(negative)
     matmul: await a.matmul(b).toArray(),
+    matmul_odd_n: await mmA.matmul(mmB).toArray(),
+    broadcast_add_row27: await wide.add(rowBias).toArray(),
+    matmul_add_chain: chain,
     transpose: await a.transpose().toArray(),
     softmax: await a.softmax(1).toArray(),
     sum: await a.sum().item(),
+    sum_axis_last: await a.sum(1).toArray(),
+    sum_axis_first: await a.sum(0).toArray(),
+    broadcast_mul_scalar: await a.mul(scalar).toArray(),
+    broadcast_add_row: await a.add(rowVec).toArray(),
   };
 
   shutdown();
@@ -73,9 +118,16 @@ const TOLERANCES: Record<keyof Results, number> = {
   exp: 1e-5,
   log: 1e-5,
   matmul: 1e-3,
+  matmul_odd_n: 1e-3,
+  broadcast_add_row27: 1e-6,
+  matmul_add_chain: 1e-3,
   transpose: 0,
   softmax: 1e-6,
   sum: 1e-2,
+  sum_axis_last: 1e-5,
+  sum_axis_first: 1e-5,
+  broadcast_mul_scalar: 1e-6,
+  broadcast_add_row: 1e-6,
 };
 
 async function runParity(threads: number, { log }: RunContext) {
@@ -99,7 +151,7 @@ async function runParity(threads: number, { log }: RunContext) {
 
   return {
     pass: allOk,
-    message: allOk ? "12/12 kernels match" : "some kernels diverged",
+    message: allOk ? "19/19 kernels match" : "some kernels diverged",
   };
 }
 

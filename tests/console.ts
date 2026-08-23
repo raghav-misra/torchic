@@ -1,5 +1,7 @@
 import torchic, { Tensor } from "../src/index";
 import { benchOne, type Backend } from "./suites/matmul-bench";
+import { runMakemore } from "./demos/makemore";
+import type { BenchMetrics } from "./framework/types";
 
 interface TorchicBench {
   matmul(backend: Backend, size: number, threads?: number): Promise<{ medianMs: number; gflops: number }>;
@@ -16,6 +18,7 @@ interface TorchicBench {
     iterations?: number,
     threads?: number,
   ): Promise<number[]>;
+  makemore(backend: Backend, threads?: number): Promise<BenchMetrics>;
 }
 
 declare global {
@@ -49,6 +52,8 @@ window.torchicBench = {
   matmul: (backend, size, threads = 1) => benchOne(backend, size, size, size, threads),
   matmulShape: (backend, m, k, n, threads = 1) => benchOne(backend, m, k, n, threads),
   hot,
+  makemore: (backend, threads) =>
+    runMakemore(backend, { log: (m) => console.log(m) }, threads),
 };
 
 console.log(
@@ -57,4 +62,5 @@ console.log(
   "\n  await torchicBench.matmul('webgpu', 2048)",
   "\n  await torchicBench.matmul('wasm', 1024, 8)",
   "\n  await torchicBench.hot('webgpu', 2048, 50)   // sees the GPU boost ramp",
+  "\n  await torchicBench.makemore('wasm', 1)       // makemore with 1 wasm thread",
 );
