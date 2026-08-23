@@ -1,57 +1,69 @@
-# torchic → Kokoro TTS: model-serving roadmap
+# torchic → Kokoro TTS: roadmap
 
-## North star
+We ship an in-browser Kokoro-82M synthesis pipeline that runs end-to-end.
+Three parallel tracks from here:
 
-Load the [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) TTS checkpoint
-in the browser and synthesize an English utterance end-to-end, running
-entirely on torchic. Target: RTF < 1.0 on a modern laptop with WebGPU (audio
-produced faster than it plays back). Full-utterance synthesis, not streaming.
+## Track 1: long-form synthesis
 
-```ts
-import { init } from "torchic";
-import { Kokoro } from "./tests/demos/kokoro";
+Today's demo synthesizes ~2 s at a time before it drifts / cuts off. Get
+comfortable with paragraph-length inputs.
 
-await init({ backend: "webgpu", memorySizeMB: 512 });
-const model = await Kokoro.fromPretrained("hexgrad/Kokoro-82M");
-const pcm = await model.synthesize(phonemes, { voice: "af_bella" });
-const buf = audioCtx.createBuffer(1, pcm.length, 24000);
-buf.copyToChannel(pcm, 0);
-audioCtx.createBufferSource().buffer = buf;
-```
+- [ ] Diagnose "last word rushes / cuts off" on 40+ token inputs. Log
+      `predDur` per phoneme and audio length vs expected to isolate whether
+      it's a duration-head drift or a length-computation off-by-one.
+- [ ] Sentence splitting: break long text at punctuation, synthesize
+      per-sentence, concat PCM with a short silence pad. Sidesteps whatever
+      cap the current pipeline has and gives the caller an obvious knob.
+- [ ] Ship a real G2P frontend (`misaki` or eSpeak-NG WASM) so the demo
+      accepts text, not just pre-tokenized phoneme IDs.
+- [ ] Bundle more voice packs in the demo folder.
 
-## Current state
+## Track 2: RTF < 1.0
 
-All primitives Kokoro needs are implemented across Workers, WASM, and WebGPU,
-verified
-via headless parity suites (`scripts/bench.mjs`). Kokoro itself lives
-as a demo under `tests/demos/kokoro/` — the library ships primitives only.
-The module tree instantiates end-to-end at ~104M params (target 82M —
-overcount will be resolved during shape alignment against the real state_dict).
-Not yet wired to real weights.
+Today: RTF ~5 on WebGPU for "hello world" (baseline 15-token utterance).
+Target: **< 1.0** so audio is produced faster than it plays back.
 
-## What's left
+- [ ] **Profile.** Where is the time actually going? Instrument
+      `Kokoro.forward` to log ms per stage (bert, predictor, decode, generator,
+      istft). Bench harness reports RTF too.
+- [ ] **Fused MHA on WebGPU** (Q·Kᵀ + softmax + ·V in one pipeline). BERT
+      is 12 layers × attention — likely the top hotspot.
+- [ ] **Reduce dispatch overhead.** Each op is one WebGPU dispatch; deep
+      networks with tiny tensors are latency-bound. Investigate batching or
+      workgraph-style scheduling.
+- [ ] **`Conv1d` on WebGPU via im2col + matmul.** Convs feed into every
+      resblock; today they're the direct-loop kernel.
+- [ ] **Better WebGPU matmul kernel.** `vec4<f32>` loads, transposed thread
+      mapping to fix bank conflicts, 128×128 workgroup tiles. Target 1–2
+      TFLOPS on 2070-class GPUs (~3–6× today's 310 GFLOPS).
+- [ ] **BF16 in-GPU upcast.** Load safetensors as BF16 into the heap, upcast
+      in the shader instead of on the CPU. Halves memory bandwidth and lets
+      us keep the checkpoint smaller.
 
-### Runtime
+## Track 3: quality parity with reference PyTorch
 
-- [ ] `Module.eval()` forces `noGrad` for the forward pass — no accidental
-      autograd overhead during serving
+Today: recognizable but "muffled." Target: indistinguishable from a
+`kokoro-python` synthesis of the same phoneme sequence on the same voice.
 
-### Kokoro-specific (lives under `tests/demos/kokoro/`)
+- [ ] **Numerical parity harness.** Python script that runs reference Kokoro
+      on the same phoneme IDs and dumps intermediates at 6–8 checkpoints
+      (`bert_out`, `d_en`, `duration_logits`, `en`, `F0_pred`, `N_pred`,
+      `t_en`, `asr`, final PCM). JS side dumps the same. Diff L2 distance
+      per stage → wherever it jumps sharply is the bug.
+- [ ] Restore the `SineGen` `F.interpolate` phase smoothing correctly
+      (currently reverted — added end-of-utterance cutoff). Careful boundary
+      handling to match PyTorch's `align_corners=False` exactly.
+- [ ] Check inline `stftHann` DFT sign/scale/window against `torch.stft` for
+      nFFT=20.
+- [ ] Verify `BiLSTM` numerical output matches PyTorch's fused-gate `nn.LSTM`
+      to within f32 eps.
+- [ ] Check softmax / attention numerical stability on WebGPU (hardware
+      `exp` precision).
 
-- [ ] Align skeleton state_dict names + shapes with the real checkpoint
-      (closes the ~22M param overshoot)
-- [ ] `weight_norm` g/v layout, if the checkpoint stores weights pre-fusion
-- [ ] Wire `Kokoro.forward()` — currently throws
-- [ ] Bundle one voice pack (e.g. `af_bella`) with the demo
-- [ ] Caller passes phonemes for now (no G2P shipped)
+## Non-goals
 
-### Nice-to-haves
-
-- [ ] `Gather` / advanced indexing beyond `embedding` (needed to expand
-      per-phoneme features by predicted durations into the frame axis)
-- [ ] `Pad` reflect / replicate modes
-- [ ] Rotary embeddings (only if a Kokoro sub-block needs them)
-- [ ] Fused MHA on WebGPU (matmul + softmax + matmul in one pipeline)
-- [ ] `Conv1D` on WebGPU via im2col + matmul
-- [ ] BF16 → F32 upcast on the GPU without a CPU round-trip
-- [ ] Bench harness reports RTF = `wall_time / (num_samples / sample_rate)`
+- Training. Serving library.
+- Multiple concurrent utterances.
+- Streaming synthesis (chunked decoder state). Full-utterance is the
+  current model.
+- Non-English voices (would need multilingual G2P).

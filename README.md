@@ -7,26 +7,25 @@ tensor heap, zero-copy views.
 
 ## Highlights
 
-- **Serves an 82M-parameter TTS model end-to-end in-browser.** [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) —
-  phoneme IDs → BERT → prosody predictor → alignment expansion → StyleTTS 2
-  decoder → F0-driven ISTFTNet vocoder → PCM at 24 kHz. Runs through the same
-  Tensor / nn.Module / dispatcher stack every other torchic model uses. See
+- **Serves [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) TTS
+  end-to-end in-browser.** 82M-param model, real HF safetensors weights,
+  Float32 throughout, 24 kHz output. See
   [`tests/demos/kokoro/`](tests/demos/kokoro/) and the "Kokoro: end-to-end
   synthesis" freeform bench in the interactive test page.
-- **Three interchangeable backends.** Pick at `init` — same `Dispatcher`
-  interface, same `Tensor` frontend, no autograd changes.
-- **Peak matmul: 310 GFLOPS on WebGPU, 57 GFLOPS on WASM (2070 Max-Q / i7).**
+- **Three interchangeable backends** behind one `Dispatcher` interface. Pick
+  at `init`.
+- **Peak matmul: 310 GFLOPS on WebGPU, 57 GFLOPS on WASM** (2070 Max-Q / i7).
   See [Performance](#performance).
-- **Kernels across all backends:** matmul + bmm + Conv1d / ConvTranspose1d
-  (incl. grouped/depthwise) + softmax + sum + sum-axis + transpose + embedding
-  + concat + reflection/constant pad + `relu` / `gelu` / `tanh` / `sigmoid` /
-  `silu` / `leaky_relu` / `sqrt` / `rsqrt` / `sin` / `cos` / `exp` / `log`.
+- **Kernels across all backends:** matmul, bmm, Conv1d/ConvTranspose1d (incl.
+  grouped/depthwise), softmax, sum, sum-axis, transpose, embedding, concat,
+  pad, `relu`/`gelu`/`tanh`/`sigmoid`/`silu`/`leaky_relu`/`sqrt`/`rsqrt`/
+  `sin`/`cos`/`exp`/`log`.
 - **nn:** `Linear`, `LinearNorm`, `Embedding`, `Sequential`, `LayerNorm`,
-  `GroupNorm`, `InstanceNorm1d`, `MultiHeadAttention`, `TransformerEncoderLayer`,
-  `Conv1d`, `ConvTranspose1d`, `LSTMCell`, `BiLSTM`, `Snake1D`. Loads HF
-  safetensors (F32/BF16/F16) with `weight_norm` fusion on the fly.
-- **dsp:** `stft` / `istft` (with non-pow-2 FFT), `hannWindow`. Used by the
-  Kokoro vocoder's ISTFT tail.
+  `GroupNorm`, `InstanceNorm1d`, `MultiHeadAttention`,
+  `TransformerEncoderLayer`, `Conv1d`, `ConvTranspose1d`, `LSTMCell`,
+  `BiLSTM`, `Snake1D`. Loads HF safetensors (F32/BF16/F16) with `weight_norm`
+  fusion on the fly.
+- **dsp:** `stft` / `istft` (non-pow-2 FFT supported), `hannWindow`.
 
 ## Quick start
 
