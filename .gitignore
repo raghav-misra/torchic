@@ -31,3 +31,6 @@ uv.lock
 
 # Agent session transcripts
 chat.md
+
+# where i threw my kokoro model files
+ext/

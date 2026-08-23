@@ -1,4 +1,4 @@
-import { Tensor, init, shutdown, noGrad, trackTensors, nn } from "../../../src/index";
+import { Tensor, init, shutdown, noGrad, nn } from "../../../src/index";
 import { defineFreeform } from "../../framework/define";
 import type { FreeformContext } from "../../framework/types";
 import { Kokoro } from "./index";
@@ -134,8 +134,13 @@ async function synthesize(ctx: FreeformContext, sample: keyof typeof SAMPLES): P
   );
 
   const started = performance.now();
-  const { audio, predDur } = await trackTensors(() =>
-    noGrad(() => state.model!.forward(inputIds, ref, { speed })),
+  // No trackTensors here on purpose: it adds every allocation to a Set which
+  // holds strong refs and prevents FinalizationRegistry from firing on
+  // intermediates, so the working set balloons to *all* tensors ever
+  // allocated in the pass. eval() already suppresses the autograd tape, so
+  // dropping refs + letting GC recycle is the right strategy.
+  const { audio, predDur } = await noGrad(() =>
+    state.model!.forward(inputIds, ref, { speed }),
   );
   const elapsed = (performance.now() - started) / 1000;
   const audioSec = audio.length / SAMPLE_RATE;

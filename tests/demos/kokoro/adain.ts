@@ -12,7 +12,11 @@ export class AdaIN1d extends Module {
 
   constructor(styleDim: number, numFeatures: number) {
     super();
-    this.norm = this.child("norm", new InstanceNorm1d(numFeatures, 1e-5, true));
+    // Reference kokoro/istftnet.py uses affine=True (see the comment there
+    // about an ONNX-export bug), but the shipped checkpoint was trained with
+    // affine=False so there are no `norm.weight`/`norm.bias` entries. Match
+    // the checkpoint.
+    this.norm = this.child("norm", new InstanceNorm1d(numFeatures, 1e-5, false));
     this.fc = this.child("fc", new Linear(styleDim, numFeatures * 2));
   }
 

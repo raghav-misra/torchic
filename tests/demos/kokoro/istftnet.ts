@@ -72,21 +72,38 @@ export class AdaINResBlock1 extends Module {
   private snake(x: Tensor, alpha: Tensor): Tensor {
     const ax = alpha.mul(x);
     const sinAx = ax.sin();
+    ax.dispose();
     const sinSq = sinAx.mul(sinAx);
-    const invAlpha = Tensor.ones([1, this.channels, 1]).div(alpha);
-    return x.add(invAlpha.mul(sinSq));
+    sinAx.dispose();
+    const ones = Tensor.ones([1, this.channels, 1]);
+    const invAlpha = ones.div(alpha);
+    ones.dispose();
+    const scaled = invAlpha.mul(sinSq);
+    invAlpha.dispose();
+    sinSq.dispose();
+    const out = x.add(scaled);
+    scaled.dispose();
+    return out;
   }
 
   forward(x: Tensor, s: Tensor): Tensor {
     let out = x;
     for (let i = 0; i < this.convs1.length; i++) {
       let xt = this.adain1[i].forward(out, s);
-      xt = this.snake(xt, this.alpha1[i]);
-      xt = this.convs1[i].forward(xt);
-      xt = this.adain2[i].forward(xt, s);
-      xt = this.snake(xt, this.alpha2[i]);
-      xt = this.convs2[i].forward(xt);
-      out = xt.add(out);
+      const snaked1 = this.snake(xt, this.alpha1[i]);
+      xt.dispose();
+      xt = this.convs1[i].forward(snaked1);
+      snaked1.dispose();
+      const norm2 = this.adain2[i].forward(xt, s);
+      xt.dispose();
+      const snaked2 = this.snake(norm2, this.alpha2[i]);
+      norm2.dispose();
+      xt = this.convs2[i].forward(snaked2);
+      snaked2.dispose();
+      const next = xt.add(out);
+      xt.dispose();
+      if (out !== x) out.dispose();
+      out = next;
     }
     return out;
   }
@@ -344,23 +361,48 @@ export class Generator extends Module {
 
     let h = x;
     for (let i = 0; i < this.numUpsamples; i++) {
-      h = h.leaky_relu(LEAKY_SLOPE);
+      const hRelu = h.leaky_relu(LEAKY_SLOPE);
+      if (h !== x) h.dispose();
+
       let xSource = this.noise_convs[i].forward(har);
-      xSource = this.noise_res[i].forward(xSource, s);
-      h = this.ups[i].forward(h);
-      if (i === this.numUpsamples - 1) h = h.reflectionPad1d(1, 0);
-      h = h.add(xSource);
+      const xSourceRes = this.noise_res[i].forward(xSource, s);
+      xSource.dispose();
+      xSource = xSourceRes;
+
+      let hUp = this.ups[i].forward(hRelu);
+      hRelu.dispose();
+      if (i === this.numUpsamples - 1) {
+        const padded = hUp.reflectionPad1d(1, 0);
+        hUp.dispose();
+        hUp = padded;
+      }
+      const hAdd = hUp.add(xSource);
+      hUp.dispose();
+      xSource.dispose();
 
       let xs: Tensor | null = null;
       for (let j = 0; j < this.numKernels; j++) {
-        const block = this.resblocks[i * this.numKernels + j].forward(h, s);
-        xs = xs === null ? block : xs.add(block);
+        const block = this.resblocks[i * this.numKernels + j].forward(hAdd, s);
+        if (xs === null) {
+          xs = block;
+        } else {
+          const summed: Tensor = xs.add(block);
+          xs.dispose();
+          block.dispose();
+          xs = summed;
+        }
       }
+      hAdd.dispose();
       const inv = Tensor.fromData([1 / this.numKernels]);
       h = xs!.mul(inv);
+      xs!.dispose();
+      inv.dispose();
     }
-    h = h.leaky_relu(LEAKY_SLOPE);
-    h = this.conv_post.forward(h);
+    const hFinal = h.leaky_relu(LEAKY_SLOPE);
+    h.dispose();
+    h = this.conv_post.forward(hFinal);
+    hFinal.dispose();
+    har.dispose();
 
     // Split channel axis: first nBins = log-mag, second nBins = phase.
     const specPart = h.slice([[0, B], [0, nBins], [0, h.shape[2]]]).exp();
