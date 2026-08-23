@@ -275,6 +275,60 @@ export function tanh(
   }
 }
 
+export function sin(
+  a: Float32Array,
+  out: Float32Array,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  if (shape && strides) {
+    for (let i = start; i < end; i++) {
+      let idx = i;
+      let inputOffset = 0;
+      for (let dim = shape.length - 1; dim >= 0; dim--) {
+        const size = shape[dim];
+        const pos = idx % size;
+        idx = Math.floor(idx / size);
+        inputOffset += pos * strides[dim];
+      }
+      out[i] = Math.sin(a[inputOffset]);
+    }
+  } else {
+    for (let i = start; i < end; i++) {
+      out[i] = Math.sin(a[i]);
+    }
+  }
+}
+
+export function cos(
+  a: Float32Array,
+  out: Float32Array,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  if (shape && strides) {
+    for (let i = start; i < end; i++) {
+      let idx = i;
+      let inputOffset = 0;
+      for (let dim = shape.length - 1; dim >= 0; dim--) {
+        const size = shape[dim];
+        const pos = idx % size;
+        idx = Math.floor(idx / size);
+        inputOffset += pos * strides[dim];
+      }
+      out[i] = Math.cos(a[inputOffset]);
+    }
+  } else {
+    for (let i = start; i < end; i++) {
+      out[i] = Math.cos(a[i]);
+    }
+  }
+}
+
 export function tanh_backward(
   output: Float32Array,
   gradOutput: Float32Array,

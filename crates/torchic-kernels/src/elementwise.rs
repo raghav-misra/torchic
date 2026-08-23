@@ -143,6 +143,24 @@ pub unsafe extern "C" fn tanh(a: *const f32, out: *mut f32, start: u32, end: u32
     }
 }
 
+#[no_mangle]
+pub unsafe extern "C" fn sin(a: *const f32, out: *mut f32, start: u32, end: u32) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        *out.add(i) = libm::sinf(*a.add(i));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cos(a: *const f32, out: *mut f32, start: u32, end: u32) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        *out.add(i) = libm::cosf(*a.add(i));
+    }
+}
+
 // derivative of tanh: grad_input = grad_output * (1 - out^2)
 #[no_mangle]
 pub unsafe extern "C" fn tanh_backward(

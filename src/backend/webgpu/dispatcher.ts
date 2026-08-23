@@ -202,6 +202,8 @@ export class WebGPUDispatcher implements Dispatcher {
       op === "EXP" ||
       op === "LOG" ||
       op === "TANH" ||
+      op === "SIN" ||
+      op === "COS" ||
       op === "GELU" ||
       op === "SQRT" ||
       op === "RSQRT" ||

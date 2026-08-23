@@ -69,6 +69,8 @@ export interface KernelExports {
     start: number,
     end: number,
   ): void;
+  sin(aPtr: number, outPtr: number, start: number, end: number): void;
+  cos(aPtr: number, outPtr: number, start: number, end: number): void;
 
   gelu(aPtr: number, outPtr: number, start: number, end: number): void;
   gelu_backward(

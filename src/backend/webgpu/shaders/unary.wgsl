@@ -46,6 +46,20 @@ fn tanh_(@builtin(global_invocation_id) gid: vec3<u32>) {
   heap[u.output_off + i] = tanh(heap[u.input_off + i]);
 }
 
+@compute @workgroup_size(256)
+fn sin_(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  heap[u.output_off + i] = sin(heap[u.input_off + i]);
+}
+
+@compute @workgroup_size(256)
+fn cos_(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  heap[u.output_off + i] = cos(heap[u.input_off + i]);
+}
+
 // Tanh approximation used by BERT / GPT-2 / Kokoro.
 // gelu(x) = 0.5 * x * (1 + tanh(0.7978845608 * (x + 0.044715 * x^3)))
 @compute @workgroup_size(256)

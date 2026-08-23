@@ -419,6 +419,14 @@ export class Tensor {
     return this.runUnaryOp("TANH");
   }
 
+  sin(): Tensor {
+    return this.runUnaryOp("SIN");
+  }
+
+  cos(): Tensor {
+    return this.runUnaryOp("COS");
+  }
+
   gelu(): Tensor {
     return this.runUnaryOp("GELU");
   }

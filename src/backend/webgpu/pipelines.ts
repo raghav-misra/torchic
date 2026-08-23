@@ -58,6 +58,8 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   LEAKY_RELU: { module: "unary", entry: "leaky_relu" },
   SILU: { module: "unary", entry: "silu" },
   COPY: { module: "unary", entry: "copy_" },
+  SIN: { module: "unary", entry: "sin_" },
+  COS: { module: "unary", entry: "cos_" },
 
   FILL: { module: "fill", entry: "main" },
   SOFTMAX: { module: "softmax", entry: "softmax" },

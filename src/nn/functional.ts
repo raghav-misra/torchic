@@ -10,6 +10,14 @@ export function tanh(x: Tensor): Tensor {
   return x.tanh();
 }
 
+export function sin(x: Tensor): Tensor {
+  return x.sin();
+}
+
+export function cos(x: Tensor): Tensor {
+  return x.cos();
+}
+
 export function gelu(x: Tensor): Tensor {
   return x.gelu();
 }

@@ -623,6 +623,12 @@ function executeKernel(
     case "TANH_BACKWARD":
       elementwise.tanh_backward(inputViews[0], inputViews[1], outputView, start, end);
       break;
+    case "SIN":
+      elementwise.sin(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
+    case "COS":
+      elementwise.cos(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
     case "GELU":
       elementwise.gelu(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;

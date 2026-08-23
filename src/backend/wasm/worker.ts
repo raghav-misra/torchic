@@ -341,6 +341,8 @@ const STRIDED_UNARY = new Set([
   "EXP",
   "LOG",
   "TANH",
+  "SIN",
+  "COS",
   "GELU",
   "SQRT",
   "RSQRT",
@@ -814,6 +816,14 @@ function executeKernel(
         start,
         end,
       );
+      return;
+    case "SIN":
+      stridedUnary();
+      exports.sin(inputs[0].offset, output.offset, start, end);
+      return;
+    case "COS":
+      stridedUnary();
+      exports.cos(inputs[0].offset, output.offset, start, end);
       return;
     case "GELU":
       stridedUnary();

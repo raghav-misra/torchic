@@ -30,6 +30,8 @@ interface Results {
   sigmoid: Float32Array;
   leaky_relu: Float32Array;
   silu: Float32Array;
+  sin: Float32Array;
+  cos: Float32Array;
   conv1d_basic: Float32Array;
   conv1d_stride_pad: Float32Array;
   conv_transpose1d_basic: Float32Array;
@@ -121,6 +123,8 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
     sigmoid: await a.sigmoid().toArray(),
     leaky_relu: await a.leaky_relu(0.1).toArray(),
     silu: await a.silu().toArray(),
+    sin: await a.sin().toArray(),
+    cos: await a.cos().toArray(),
     conv1d_basic: await convIn.conv1d(convW, convB, {}).toArray(),
     conv1d_stride_pad: await convIn
       .conv1d(convW, convB, { stride: 2, padding: 2 })
@@ -174,6 +178,8 @@ const TOLERANCES: Record<keyof Results, number> = {
   sigmoid: 1e-6,
   leaky_relu: 1e-6,
   silu: 1e-5,
+  sin: 1e-6,
+  cos: 1e-6,
   conv1d_basic: 1e-5,
   conv1d_stride_pad: 1e-5,
   conv_transpose1d_basic: 1e-5,
