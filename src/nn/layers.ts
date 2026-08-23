@@ -48,3 +48,35 @@ export class Sequential extends Module {
     return h;
   }
 }
+
+// Layer normalization over the last `normalizedShape` dimensions. Composed from
+// primitives — a fused kernel can replace this later without touching callers.
+export class LayerNorm extends Module {
+  weight: Tensor;
+  bias: Tensor;
+  private eps: Tensor;
+  private normalizedShape: number[];
+
+  constructor(normalizedShape: number | number[], eps = 1e-5) {
+    super();
+    const shape = typeof normalizedShape === "number" ? [normalizedShape] : normalizedShape;
+    this.normalizedShape = shape;
+    this.weight = this.param("weight", Tensor.ones(shape, true));
+    this.bias = this.param("bias", Tensor.zeros(shape, true));
+    this.eps = Tensor.fromData([eps]);
+  }
+
+  forward(x: Tensor): Tensor {
+    if (this.normalizedShape.length !== 1) {
+      throw new Error(
+        `LayerNorm only supports 1-D normalizedShape for now, got ${this.normalizedShape}`,
+      );
+    }
+    const axis = x.shape.length - 1;
+    const mean = x.mean(axis, true);
+    const centered = x.sub(mean);
+    const variance = centered.mul(centered).mean(axis, true);
+    const invStd = variance.add(this.eps).rsqrt();
+    return centered.mul(invStd).mul(this.weight).add(this.bias);
+  }
+}

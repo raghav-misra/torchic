@@ -29,11 +29,15 @@ Building blocks that already work in the library:
 - [x] Three backends (Workers, WASM/SIMD, WebGPU) behind one dispatcher
 - [x] `nn.Module` with `param`/`buffer`/`child`/`childList`, `state_dict`,
       `load_state_dict`, `train`/`eval`, `parameters()`
-- [x] `nn.Linear`, `nn.Embedding`, `nn.Sequential`
-- [x] `nn.functional`: `relu`, `tanh`, `softmax`
+- [x] `nn.Linear`, `nn.Embedding`, `nn.Sequential`, `nn.LayerNorm` (composed)
+- [x] `nn.functional`: `relu`, `tanh`, `gelu`, `softmax`
 - [x] `optim.SGD`
 - [x] Broadcast materialize path on all three backends
 - [x] Elementwise, matmul, transpose, softmax, sum, sum-axis, embedding fwd+bwd
+- [x] `sqrt` / `rsqrt` primitives (Workers, WASM, WebGPU)
+- [x] `gelu` primitive (Workers, WASM, WebGPU — tanh approximation used by BERT / Kokoro)
+- [x] Headless bench harness (vite + puppeteer) so all this can be exercised
+      from CLI without opening a browser tab
 
 ## Gap analysis
 

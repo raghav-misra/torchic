@@ -17,6 +17,9 @@ interface Results {
   transpose: Float32Array;
   softmax: Float32Array;
   sum: number;
+  gelu: Float32Array;
+  sqrt: Float32Array;
+  rsqrt: Float32Array;
 }
 
 async function runOps(backend: Backend): Promise<Results> {
@@ -43,6 +46,9 @@ async function runOps(backend: Backend): Promise<Results> {
     transpose: await a.transpose().toArray(),
     softmax: await a.softmax(1).toArray(),
     sum: await a.sum().item(),
+    gelu: await a.gelu().toArray(),
+    sqrt: await a.mul(a).sqrt().toArray(),
+    rsqrt: await a.mul(a).add(Tensor.fromData([1e-3])).rsqrt().toArray(),
   };
 
   shutdown();
@@ -73,6 +79,9 @@ const TOLERANCES: Record<keyof Results, number> = {
   transpose: 0,
   softmax: 1e-5,
   sum: 1e-2,
+  gelu: 1e-5,
+  sqrt: 1e-5,
+  rsqrt: 1e-5,
 };
 
 async function runParity(_: null, { log }: RunContext) {
@@ -96,7 +105,7 @@ async function runParity(_: null, { log }: RunContext) {
 
   return {
     pass: allOk,
-    message: allOk ? "12/12 kernels match" : "some kernels diverged",
+    message: allOk ? `${rows.length}/${rows.length} kernels match` : "some kernels diverged",
   };
 }
 

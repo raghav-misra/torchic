@@ -34,6 +34,9 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   DIV: { module: "binary", entry: "div" },
   RELU_BACKWARD: { module: "binary", entry: "relu_backward" },
   TANH_BACKWARD: { module: "binary", entry: "tanh_backward" },
+  GELU_BACKWARD: { module: "binary", entry: "gelu_backward" },
+  SQRT_BACKWARD: { module: "binary", entry: "sqrt_backward" },
+  RSQRT_BACKWARD: { module: "binary", entry: "rsqrt_backward" },
   ADD_SCALAR_TENSOR: { module: "binary", entry: "add_scalar_tensor" },
 
   NEG: { module: "unary", entry: "neg" },
@@ -41,6 +44,9 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   EXP: { module: "unary", entry: "exp_" },
   LOG: { module: "unary", entry: "log_" },
   TANH: { module: "unary", entry: "tanh_" },
+  GELU: { module: "unary", entry: "gelu" },
+  SQRT: { module: "unary", entry: "sqrt_" },
+  RSQRT: { module: "unary", entry: "rsqrt_" },
   COPY: { module: "unary", entry: "copy_" },
 
   FILL: { module: "fill", entry: "main" },

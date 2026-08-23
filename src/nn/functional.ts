@@ -10,6 +10,10 @@ export function tanh(x: Tensor): Tensor {
   return x.tanh();
 }
 
+export function gelu(x: Tensor): Tensor {
+  return x.gelu();
+}
+
 export function softmax(x: Tensor, axis = -1): Tensor {
   return x.softmax(axis);
 }

@@ -367,3 +367,119 @@ export function softmax_backward2d(
     }
   }
 }
+
+// Tanh approximation used by BERT / GPT-2 / Kokoro.
+// gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
+const GELU_C = 0.7978845608028654; // sqrt(2/π)
+const GELU_B = 0.044715;
+
+function stridedRead(
+  a: Float32Array,
+  i: number,
+  shape: number[],
+  strides: number[],
+): number {
+  let idx = i;
+  let off = 0;
+  for (let dim = shape.length - 1; dim >= 0; dim--) {
+    const size = shape[dim];
+    const pos = idx % size;
+    idx = Math.floor(idx / size);
+    off += pos * strides[dim];
+  }
+  return a[off];
+}
+
+export function gelu(
+  a: Float32Array,
+  out: Float32Array,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  const strided = shape && strides;
+  for (let i = start; i < end; i++) {
+    const x = strided ? stridedRead(a, i, shape!, strides!) : a[i];
+    const u = GELU_C * (x + GELU_B * x * x * x);
+    out[i] = 0.5 * x * (1 + Math.tanh(u));
+  }
+}
+
+export function gelu_backward(
+  input: Float32Array,
+  gradOutput: Float32Array,
+  gradInput: Float32Array,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  const strided = shape && strides;
+  for (let i = start; i < end; i++) {
+    const x = strided ? stridedRead(input, i, shape!, strides!) : input[i];
+    const x2 = x * x;
+    const u = GELU_C * (x + GELU_B * x * x2);
+    const t = Math.tanh(u);
+    const dudx = GELU_C * (1 + 3 * GELU_B * x2);
+    const dgelu = 0.5 * (1 + t) + 0.5 * x * (1 - t * t) * dudx;
+    gradInput[i] = gradOutput[i] * dgelu;
+  }
+}
+
+export function sqrt(
+  a: Float32Array,
+  out: Float32Array,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  const strided = shape && strides;
+  for (let i = start; i < end; i++) {
+    const x = strided ? stridedRead(a, i, shape!, strides!) : a[i];
+    out[i] = Math.sqrt(x);
+  }
+}
+
+// d/dx sqrt(x) = 0.5 / sqrt(x) = 0.5 / y
+export function sqrt_backward(
+  output: Float32Array,
+  gradOutput: Float32Array,
+  gradInput: Float32Array,
+  start: number,
+  end: number,
+) {
+  for (let i = start; i < end; i++) {
+    gradInput[i] = gradOutput[i] * 0.5 / output[i];
+  }
+}
+
+export function rsqrt(
+  a: Float32Array,
+  out: Float32Array,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  const strided = shape && strides;
+  for (let i = start; i < end; i++) {
+    const x = strided ? stridedRead(a, i, shape!, strides!) : a[i];
+    out[i] = 1 / Math.sqrt(x);
+  }
+}
+
+// d/dx x^(-1/2) = -0.5 * x^(-3/2) = -0.5 * y^3
+export function rsqrt_backward(
+  output: Float32Array,
+  gradOutput: Float32Array,
+  gradInput: Float32Array,
+  start: number,
+  end: number,
+) {
+  for (let i = start; i < end; i++) {
+    const y = output[i];
+    gradInput[i] = gradOutput[i] * -0.5 * y * y * y;
+  }
+}

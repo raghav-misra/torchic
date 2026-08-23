@@ -45,6 +45,31 @@ fn tanh_(@builtin(global_invocation_id) gid: vec3<u32>) {
   heap[u.output_off + i] = tanh(heap[u.input_off + i]);
 }
 
+// Tanh approximation used by BERT / GPT-2 / Kokoro.
+// gelu(x) = 0.5 * x * (1 + tanh(0.7978845608 * (x + 0.044715 * x^3)))
+@compute @workgroup_size(256)
+fn gelu(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  let x = heap[u.input_off + i];
+  let u_ = 0.7978845608028654 * (x + 0.044715 * x * x * x);
+  heap[u.output_off + i] = 0.5 * x * (1.0 + tanh(u_));
+}
+
+@compute @workgroup_size(256)
+fn sqrt_(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  heap[u.output_off + i] = sqrt(heap[u.input_off + i]);
+}
+
+@compute @workgroup_size(256)
+fn rsqrt_(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  heap[u.output_off + i] = inverseSqrt(heap[u.input_off + i]);
+}
+
 @compute @workgroup_size(256)
 fn copy_(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = u.start + gid.x;

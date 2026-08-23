@@ -313,6 +313,18 @@ export class Tensor {
     return this.runUnaryOp("TANH");
   }
 
+  gelu(): Tensor {
+    return this.runUnaryOp("GELU");
+  }
+
+  sqrt(): Tensor {
+    return this.runUnaryOp("SQRT");
+  }
+
+  rsqrt(): Tensor {
+    return this.runUnaryOp("RSQRT");
+  }
+
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
       throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);
@@ -552,6 +564,33 @@ export class Tensor {
           const gradTensor = new Tensor(gradId, a.shape, false);
           a.addGrad(gradTensor);
         }
+      } else if (v.op === "GELU") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          const gradId = getDispatcher().nextTensorId();
+          getDispatcher().allocate(gradId, a.numElements() * 4);
+          getDispatcher().runOp("GELU_BACKWARD", [a.id, v.grad.id], gradId, {
+            shape: a.shape,
+            strides: a.strides,
+          });
+          a.addGrad(new Tensor(gradId, a.shape, false));
+        }
+      } else if (v.op === "SQRT") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          const gradId = getDispatcher().nextTensorId();
+          getDispatcher().allocate(gradId, a.numElements() * 4);
+          getDispatcher().runOp("SQRT_BACKWARD", [v.id, v.grad.id], gradId);
+          a.addGrad(new Tensor(gradId, a.shape, false));
+        }
+      } else if (v.op === "RSQRT") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          const gradId = getDispatcher().nextTensorId();
+          getDispatcher().allocate(gradId, a.numElements() * 4);
+          getDispatcher().runOp("RSQRT_BACKWARD", [v.id, v.grad.id], gradId);
+          a.addGrad(new Tensor(gradId, a.shape, false));
+        }
       } else if (v.op === "LOG") {
         const [a] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.div(a));
@@ -728,10 +767,18 @@ export class Tensor {
     return out;
   }
 
-  mean(): Tensor {
-    const s = this.sum();
-    const n = this.numElements();
-    return s.div(Tensor.create([1], false, "FILL", { value: n }));
+  mean(): Tensor;
+  mean(axis: number, keepDim?: boolean): Tensor;
+  mean(axis?: number, keepDim = false): Tensor {
+    if (axis === undefined) {
+      const s = this.sum();
+      const n = this.numElements();
+      return s.div(Tensor.create([1], false, "FILL", { value: n }));
+    }
+    const axisResolved = axis < 0 ? this.shape.length + axis : axis;
+    const N = this.shape[axisResolved];
+    const s = this.sum(axis, keepDim);
+    return s.div(Tensor.create([1], false, "FILL", { value: N }));
   }
 
   softmax(axis = -1): Tensor {

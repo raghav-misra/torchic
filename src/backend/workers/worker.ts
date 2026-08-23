@@ -541,6 +541,32 @@ function executeKernel(
     case "TANH_BACKWARD":
       elementwise.tanh_backward(inputViews[0], inputViews[1], outputView, start, end);
       break;
+    case "GELU":
+      elementwise.gelu(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
+    case "GELU_BACKWARD":
+      elementwise.gelu_backward(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        start,
+        end,
+        params.shape,
+        params.strides,
+      );
+      break;
+    case "SQRT":
+      elementwise.sqrt(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
+    case "SQRT_BACKWARD":
+      elementwise.sqrt_backward(inputViews[0], inputViews[1], outputView, start, end);
+      break;
+    case "RSQRT":
+      elementwise.rsqrt(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
+    case "RSQRT_BACKWARD":
+      elementwise.rsqrt_backward(inputViews[0], inputViews[1], outputView, start, end);
+      break;
     case "LOG":
       elementwise.log(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;

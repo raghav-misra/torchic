@@ -326,10 +326,23 @@ const BINARY_ELEMENTWISE = new Set([
   "DIV",
   "RELU_BACKWARD",
   "TANH_BACKWARD",
+  "GELU_BACKWARD",
+  "SQRT_BACKWARD",
+  "RSQRT_BACKWARD",
   "ADD_SCALAR_TENSOR",
 ]);
 
-const STRIDED_UNARY = new Set(["NEG", "RELU", "EXP", "LOG", "TANH", "COPY"]);
+const STRIDED_UNARY = new Set([
+  "NEG",
+  "RELU",
+  "EXP",
+  "LOG",
+  "TANH",
+  "GELU",
+  "SQRT",
+  "RSQRT",
+  "COPY",
+]);
 
 function isBinaryElementwise(op: string): boolean {
   return BINARY_ELEMENTWISE.has(op);
@@ -698,6 +711,45 @@ function executeKernel(
       return;
     case "TANH_BACKWARD":
       exports.tanh_backward(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        start,
+        end,
+      );
+      return;
+    case "GELU":
+      stridedUnary();
+      exports.gelu(inputs[0].offset, output.offset, start, end);
+      return;
+    case "GELU_BACKWARD":
+      exports.gelu_backward(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        start,
+        end,
+      );
+      return;
+    case "SQRT":
+      stridedUnary();
+      exports.sqrt_op(inputs[0].offset, output.offset, start, end);
+      return;
+    case "SQRT_BACKWARD":
+      exports.sqrt_backward(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        start,
+        end,
+      );
+      return;
+    case "RSQRT":
+      stridedUnary();
+      exports.rsqrt_op(inputs[0].offset, output.offset, start, end);
+      return;
+    case "RSQRT_BACKWARD":
+      exports.rsqrt_backward(
         inputs[0].offset,
         inputs[1].offset,
         output.offset,

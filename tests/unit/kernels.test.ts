@@ -164,3 +164,77 @@ describe("reductions", () => {
     expect(out[0]).toBeCloseTo(s, 5);
   });
 });
+
+describe("gelu", () => {
+  // Tanh approximation reference used by BERT / GPT-2 / Kokoro.
+  function refGelu(x: number) {
+    const c = Math.sqrt(2 / Math.PI);
+    return 0.5 * x * (1 + Math.tanh(c * (x + 0.044715 * x * x * x)));
+  }
+
+  it("forward matches reference formula", () => {
+    const xs = new Float32Array([-3, -1, -0.5, 0, 0.5, 1, 2, 3]);
+    const out = new Float32Array(xs.length);
+    elementwise.gelu(xs, out, 0, xs.length);
+    for (let i = 0; i < xs.length; i++) {
+      expect(out[i]).toBeCloseTo(refGelu(xs[i]), 5);
+    }
+  });
+
+  it("backward matches finite-difference gradient", () => {
+    const xs = randFloat32(32, 91);
+    // gradOutput = 1 so gradInput should equal d(gelu)/dx.
+    const gradOut = new Float32Array(xs.length).fill(1);
+    const analytic = new Float32Array(xs.length);
+    elementwise.gelu_backward(xs, gradOut, analytic, 0, xs.length);
+
+    const eps = 1e-3;
+    for (let i = 0; i < xs.length; i++) {
+      const y1 = refGelu(xs[i] + eps);
+      const y2 = refGelu(xs[i] - eps);
+      const numeric = (y1 - y2) / (2 * eps);
+      expect(analytic[i]).toBeCloseTo(numeric, 3);
+    }
+  });
+});
+
+describe("sqrt / rsqrt", () => {
+  it("sqrt forward matches Math.sqrt", () => {
+    const xs = new Float32Array([0.01, 0.5, 1, 2, 100]);
+    const out = new Float32Array(xs.length);
+    elementwise.sqrt(xs, out, 0, xs.length);
+    for (let i = 0; i < xs.length; i++) expect(out[i]).toBeCloseTo(Math.sqrt(xs[i]), 5);
+  });
+
+  it("sqrt_backward = 0.5 / y", () => {
+    const xs = new Float32Array([0.25, 1, 4, 9]);
+    const y = new Float32Array(xs.length);
+    elementwise.sqrt(xs, y, 0, xs.length);
+    const gradOut = new Float32Array(xs.length).fill(1);
+    const gradIn = new Float32Array(xs.length);
+    elementwise.sqrt_backward(y, gradOut, gradIn, 0, xs.length);
+    for (let i = 0; i < xs.length; i++) {
+      expect(gradIn[i]).toBeCloseTo(0.5 / Math.sqrt(xs[i]), 5);
+    }
+  });
+
+  it("rsqrt forward = 1 / sqrt", () => {
+    const xs = new Float32Array([0.01, 0.5, 1, 2, 100]);
+    const out = new Float32Array(xs.length);
+    elementwise.rsqrt(xs, out, 0, xs.length);
+    for (let i = 0; i < xs.length; i++) expect(out[i]).toBeCloseTo(1 / Math.sqrt(xs[i]), 5);
+  });
+
+  it("rsqrt_backward = -0.5 * y^3", () => {
+    const xs = new Float32Array([0.25, 1, 4, 9]);
+    const y = new Float32Array(xs.length);
+    elementwise.rsqrt(xs, y, 0, xs.length);
+    const gradOut = new Float32Array(xs.length).fill(1);
+    const gradIn = new Float32Array(xs.length);
+    elementwise.rsqrt_backward(y, gradOut, gradIn, 0, xs.length);
+    for (let i = 0; i < xs.length; i++) {
+      const yi = 1 / Math.sqrt(xs[i]);
+      expect(gradIn[i]).toBeCloseTo(-0.5 * yi * yi * yi, 5);
+    }
+  });
+});

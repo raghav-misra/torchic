@@ -1,6 +1,7 @@
 import "./suites/wasm-parity";
 import "./suites/webgpu-parity";
 import "./suites/matmul-bench";
+import "./suites/layernorm-gelu";
 import "./demos/makemore";
 import { getRegistry } from "./framework/define";
 import type { BenchSuite, Suite, TestSuite } from "./framework/types";

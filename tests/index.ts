@@ -1,6 +1,7 @@
 import "./suites/wasm-parity";
 import "./suites/webgpu-parity";
 import "./suites/matmul-bench";
+import "./suites/layernorm-gelu";
 import "./demos/makemore";
 import "./console";
 import { mount } from "./framework/render";

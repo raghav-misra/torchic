@@ -160,6 +160,121 @@ pub unsafe extern "C" fn tanh_backward(
     }
 }
 
+// Tanh approximation used by BERT / GPT-2 / Kokoro.
+// gelu(x) = 0.5 * x * (1 + tanh(c * (x + b * x^3)))
+const GELU_C: f32 = 0.7978845608028654;
+const GELU_B: f32 = 0.044715;
+
+#[no_mangle]
+pub unsafe extern "C" fn gelu(a: *const f32, out: *mut f32, start: u32, end: u32) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let x = *a.add(i);
+        let u = GELU_C * (x + GELU_B * x * x * x);
+        *out.add(i) = 0.5 * x * (1.0 + libm::tanhf(u));
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn gelu_backward(
+    input: *const f32,
+    grad_output: *const f32,
+    grad_input: *mut f32,
+    start: u32,
+    end: u32,
+) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let x = *input.add(i);
+        let x2 = x * x;
+        let u = GELU_C * (x + GELU_B * x * x2);
+        let t = libm::tanhf(u);
+        let dudx = GELU_C * (1.0 + 3.0 * GELU_B * x2);
+        let dgelu = 0.5 * (1.0 + t) + 0.5 * x * (1.0 - t * t) * dudx;
+        *grad_input.add(i) = *grad_output.add(i) * dgelu;
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn sqrt_op(a: *const f32, out: *mut f32, start: u32, end: u32) {
+    let start = start as usize;
+    let end = end as usize;
+    let mut i = start;
+    // f32x4_sqrt maps to WASM's native f32x4.sqrt (hardware sqrt), unlike
+    // libm::sqrtf which is a software polynomial approximation.
+    while i + 4 <= end {
+        let av = v128_load(a.add(i) as *const v128);
+        v128_store(out.add(i) as *mut v128, f32x4_sqrt(av));
+        i += 4;
+    }
+    while i < end {
+        let scratch: [f32; 4] = [*a.add(i), 0.0, 0.0, 0.0];
+        let v = v128_load(scratch.as_ptr() as *const v128);
+        let r = f32x4_sqrt(v);
+        let mut dst: [f32; 4] = [0.0; 4];
+        v128_store(dst.as_mut_ptr() as *mut v128, r);
+        *out.add(i) = dst[0];
+        i += 1;
+    }
+}
+
+// d/dx sqrt(x) = 0.5 / sqrt(x) = 0.5 / y
+#[no_mangle]
+pub unsafe extern "C" fn sqrt_backward(
+    output: *const f32,
+    grad_output: *const f32,
+    grad_input: *mut f32,
+    start: u32,
+    end: u32,
+) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        *grad_input.add(i) = *grad_output.add(i) * 0.5 / *output.add(i);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsqrt_op(a: *const f32, out: *mut f32, start: u32, end: u32) {
+    let start = start as usize;
+    let end = end as usize;
+    let one = f32x4_splat(1.0);
+    let mut i = start;
+    while i + 4 <= end {
+        let av = v128_load(a.add(i) as *const v128);
+        v128_store(out.add(i) as *mut v128, f32x4_div(one, f32x4_sqrt(av)));
+        i += 4;
+    }
+    while i < end {
+        let scratch: [f32; 4] = [*a.add(i), 1.0, 1.0, 1.0];
+        let v = v128_load(scratch.as_ptr() as *const v128);
+        let r = f32x4_div(one, f32x4_sqrt(v));
+        let mut dst: [f32; 4] = [0.0; 4];
+        v128_store(dst.as_mut_ptr() as *mut v128, r);
+        *out.add(i) = dst[0];
+        i += 1;
+    }
+}
+
+// d/dx x^(-1/2) = -0.5 * x^(-3/2) = -0.5 * y^3
+#[no_mangle]
+pub unsafe extern "C" fn rsqrt_backward(
+    output: *const f32,
+    grad_output: *const f32,
+    grad_input: *mut f32,
+    start: u32,
+    end: u32,
+) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let y = *output.add(i);
+        *grad_input.add(i) = *grad_output.add(i) * -0.5 * y * y * y;
+    }
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn fill(out: *mut f32, val: f32, start: u32, end: u32) {
     let start = start as usize;

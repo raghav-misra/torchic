@@ -167,12 +167,24 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "TANH_BACKWARD") {
       return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
     }
+    if (op === "GELU_BACKWARD") {
+      const inA = this.maybeMaterialize(im[0], params.shape, params.strides);
+      this.dispatchBinary(pipeline, inA.meta, im[1], outMeta);
+      inA.free();
+      return;
+    }
+    if (op === "SQRT_BACKWARD" || op === "RSQRT_BACKWARD") {
+      return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
+    }
     if (
       op === "NEG" ||
       op === "RELU" ||
       op === "EXP" ||
       op === "LOG" ||
       op === "TANH" ||
+      op === "GELU" ||
+      op === "SQRT" ||
+      op === "RSQRT" ||
       op === "COPY"
     ) {
       const inA =

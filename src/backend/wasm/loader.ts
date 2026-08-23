@@ -57,6 +57,31 @@ export interface KernelExports {
     end: number,
   ): void;
 
+  gelu(aPtr: number, outPtr: number, start: number, end: number): void;
+  gelu_backward(
+    inputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    start: number,
+    end: number,
+  ): void;
+  sqrt_op(aPtr: number, outPtr: number, start: number, end: number): void;
+  sqrt_backward(
+    outputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    start: number,
+    end: number,
+  ): void;
+  rsqrt_op(aPtr: number, outPtr: number, start: number, end: number): void;
+  rsqrt_backward(
+    outputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    start: number,
+    end: number,
+  ): void;
+
   fill(outPtr: number, val: number, start: number, end: number): void;
   copy(inputPtr: number, outPtr: number, start: number, end: number): void;
 

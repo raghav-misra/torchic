@@ -24,6 +24,9 @@ interface Results {
   sum_axis_first: Float32Array;
   broadcast_mul_scalar: Float32Array;
   broadcast_add_row: Float32Array;
+  gelu: Float32Array;
+  sqrt: Float32Array;
+  rsqrt: Float32Array;
 }
 
 async function runOps(backend: Backend, threads: number): Promise<Results> {
@@ -88,6 +91,9 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
     sum_axis_first: await a.sum(0).toArray(),
     broadcast_mul_scalar: await a.mul(scalar).toArray(),
     broadcast_add_row: await a.add(rowVec).toArray(),
+    gelu: await a.gelu().toArray(),
+    sqrt: await a.mul(a).sqrt().toArray(), // avoid negative inputs
+    rsqrt: await a.mul(a).add(Tensor.fromData([1e-3])).rsqrt().toArray(),
   };
 
   shutdown();
@@ -128,6 +134,9 @@ const TOLERANCES: Record<keyof Results, number> = {
   sum_axis_first: 1e-5,
   broadcast_mul_scalar: 1e-6,
   broadcast_add_row: 1e-6,
+  gelu: 1e-5,
+  sqrt: 1e-5,
+  rsqrt: 1e-5,
 };
 
 async function runParity(threads: number, { log }: RunContext) {
@@ -151,7 +160,7 @@ async function runParity(threads: number, { log }: RunContext) {
 
   return {
     pass: allOk,
-    message: allOk ? "19/19 kernels match" : "some kernels diverged",
+    message: allOk ? `${rows.length}/${rows.length} kernels match` : "some kernels diverged",
   };
 }
 
