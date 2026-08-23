@@ -131,6 +131,15 @@ export interface KernelExports {
     shapePtr: number,
     stridesPtr: number,
   ): void;
+
+  sum_axis(
+    inputPtr: number,
+    outputPtr: number,
+    axisSize: number,
+    innerSize: number,
+    start: number,
+    end: number,
+  ): void;
 }
 
 export interface WasmInstance {

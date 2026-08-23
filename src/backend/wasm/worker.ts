@@ -36,7 +36,7 @@ self.onmessage = defineWorkerOnMessage<WasmCoordinatorRequest | WasmComputeReque
       role = "COORDINATOR";
       const payload = data.payload;
       buffer = payload.memory.buffer as unknown as SharedArrayBuffer;
-      memoryAllocator = new MemoryAllocator(buffer);
+      memoryAllocator = new MemoryAllocator(buffer, payload.heapBase);
       self.postMessage({ id: data.id, data: { status: "ok" } });
       return;
     }
@@ -259,37 +259,7 @@ async function handleOp(
     if (!memoryAllocator || !buffer) return;
     const shape = required(payload.params.shape, "shape");
     const strides = required(payload.params.strides, "strides");
-    const ndim = shape.length;
-    const scratchSize = ndim * 8;
-    const scratchOffset = memoryAllocator.allocate(scratchSize);
-    const view = new Uint32Array(buffer, scratchOffset, ndim * 2);
-    for (let i = 0; i < ndim; i++) {
-      view[i] = shape[i];
-      view[ndim + i] = strides[i];
-    }
-
-    const taskId = crypto.randomUUID();
-    const done = new Promise<void>((resolve) => {
-      pendingTasks.set(taskId, { resolve, count: numWorkers });
-    });
-    computePorts.forEach((port, index) => {
-      port.postMessage({
-        type: "EXECUTE_TASK",
-        taskId,
-        op: "MATERIALIZE",
-        inputs: inputs.map((m) => ({ offset: m.offset, size: m.size })),
-        output: { offset: output.offset, size: output.size },
-        params: {
-          ndim,
-          shapePtr: scratchOffset,
-          stridesPtr: scratchOffset + ndim * 4,
-        },
-        workerIndex: index,
-        totalWorkers: numWorkers,
-      });
-    });
-    await done;
-    memoryAllocator.free(scratchOffset, scratchSize);
+    await runMaterialize(inputs[0].offset, inputs[0].size, output.offset, output.size, shape, strides);
     if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
     return;
   }
@@ -328,26 +298,154 @@ async function handleOp(
     return;
   }
 
+  // Elementwise family: uniform chunk-slicing, contiguous-only fast path.
+  if (isBinaryElementwise(payload.op) || isStridedUnary(payload.op)) {
+    await runElementwiseWithMaterialize(payload.op, inputs, output, payload.params);
+    if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+    return;
+  }
+
+  if (payload.op === "SUM_AXIS") {
+    const shape = required(payload.params.shape, "shape");
+    const axis = required(payload.params.axis, "axis");
+    const axisSize = shape[axis];
+    const innerSize = shape.slice(axis + 1).reduce((a, b) => a * b, 1);
+    await fanoutToWorkers("SUM_AXIS", inputs, output, { axisSize, innerSize });
+    if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+    return;
+  }
+
+  await fanoutToWorkers(payload.op, inputs, output, payload.params);
+  if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+}
+
+const BINARY_ELEMENTWISE = new Set([
+  "ADD",
+  "SUB",
+  "MUL",
+  "DIV",
+  "RELU_BACKWARD",
+  "TANH_BACKWARD",
+  "ADD_SCALAR_TENSOR",
+]);
+
+const STRIDED_UNARY = new Set(["NEG", "RELU", "EXP", "LOG", "TANH", "COPY"]);
+
+function isBinaryElementwise(op: string): boolean {
+  return BINARY_ELEMENTWISE.has(op);
+}
+
+function isStridedUnary(op: string): boolean {
+  return STRIDED_UNARY.has(op);
+}
+
+async function fanoutToWorkers(
+  op: string,
+  inputs: TensorMetadata[],
+  output: TensorMetadata,
+  params: OpParams,
+) {
+  const numWorkers = computePorts.length;
   const taskId = crypto.randomUUID();
-  const donePromise = new Promise<void>((resolve) => {
+  const done = new Promise<void>((resolve) => {
     pendingTasks.set(taskId, { resolve, count: numWorkers });
   });
-
   computePorts.forEach((port, index) => {
     port.postMessage({
       type: "EXECUTE_TASK",
       taskId,
-      op: payload.op,
+      op,
       inputs: inputs.map((m) => ({ offset: m.offset, size: m.size })),
       output: { offset: output.offset, size: output.size },
-      params: payload.params,
+      params,
       workerIndex: index,
       totalWorkers: numWorkers,
     });
   });
+  await done;
+}
 
-  await donePromise;
-  if (reqId) self.postMessage({ id: reqId, data: { status: "done" } });
+async function runMaterialize(
+  srcOffset: number,
+  srcSize: number,
+  dstOffset: number,
+  dstSize: number,
+  shape: number[],
+  strides: number[],
+) {
+  if (!memoryAllocator || !buffer) throw new Error("WASM coordinator not initialized");
+  const ndim = shape.length;
+  const scratchSize = ndim * 8;
+  const scratchOffset = memoryAllocator.allocate(scratchSize);
+  const view = new Uint32Array(buffer, scratchOffset, ndim * 2);
+  for (let i = 0; i < ndim; i++) {
+    view[i] = shape[i];
+    view[ndim + i] = strides[i];
+  }
+  await fanoutToWorkers(
+    "MATERIALIZE",
+    [{ offset: srcOffset, size: srcSize, isView: false }],
+    { offset: dstOffset, size: dstSize, isView: false },
+    { ndim, shapePtr: scratchOffset, stridesPtr: scratchOffset + ndim * 4 },
+  );
+  memoryAllocator.free(scratchOffset, scratchSize);
+}
+
+async function materializeToScratch(
+  src: TensorMetadata,
+  shape: number[],
+  strides: number[],
+): Promise<TensorMetadata> {
+  if (!memoryAllocator) throw new Error("WASM coordinator not initialized");
+  const size = shape.reduce((a, b) => a * b, 1) * 4;
+  const offset = memoryAllocator.allocate(size);
+  await runMaterialize(src.offset, src.size, offset, size, shape, strides);
+  return { offset, size, isView: false };
+}
+
+// Materialize non-contiguous operands into scratch, then run the contiguous fast path.
+async function runElementwiseWithMaterialize(
+  op: string,
+  inputs: TensorMetadata[],
+  output: TensorMetadata,
+  params: OpParams,
+) {
+  const scratches: TensorMetadata[] = [];
+  try {
+    const workInputs = [...inputs];
+
+    if (isBinaryElementwise(op)) {
+      const shape = params.shape;
+      if (shape && params.stridesA && !isContiguous(shape, params.stridesA)) {
+        const mat = await materializeToScratch(inputs[0], shape, params.stridesA);
+        workInputs[0] = mat;
+        scratches.push(mat);
+      }
+      if (shape && params.stridesB && !isContiguous(shape, params.stridesB)) {
+        const mat = await materializeToScratch(inputs[1], shape, params.stridesB);
+        workInputs[1] = mat;
+        scratches.push(mat);
+      }
+    } else if (isStridedUnary(op)) {
+      const shape = params.shape;
+      if (shape && params.strides && !isContiguous(shape, params.strides)) {
+        const mat = await materializeToScratch(inputs[0], shape, params.strides);
+        workInputs[0] = mat;
+        scratches.push(mat);
+      }
+    }
+
+    // Strip stride params so kernels take the contig fast path.
+    const cleanParams: OpParams = { ...params };
+    delete cleanParams.shape;
+    delete cleanParams.strides;
+    delete cleanParams.stridesA;
+    delete cleanParams.stridesB;
+
+    await fanoutToWorkers(op, workInputs, output, cleanParams);
+  } finally {
+    for (const s of scratches) memoryAllocator?.free(s.offset, s.size);
+  }
 }
 
 function handleRead(payload: { id: string }, reqId: string) {
@@ -622,6 +720,16 @@ function executeKernel(
         required(params.ndim, "ndim"),
         required(params.shapePtr, "shapePtr"),
         required(params.stridesPtr, "stridesPtr"),
+      );
+      return;
+    case "SUM_AXIS":
+      exports.sum_axis(
+        inputs[0].offset,
+        output.offset,
+        required(params.axisSize, "axisSize"),
+        required(params.innerSize, "innerSize"),
+        start,
+        end,
       );
       return;
     case "ADD_SCALAR_TENSOR":

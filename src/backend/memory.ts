@@ -36,11 +36,14 @@ export class MemoryAllocator {
   // Fallback sorted free-list for allocations > MAX_BUCKET_SIZE
   private largeList: FreeBlock[] = [];
 
-  constructor(sizeOrBuffer: number | SharedArrayBuffer | ArrayBuffer) {
+  constructor(sizeOrBuffer: number | SharedArrayBuffer | ArrayBuffer, startOffset = 0) {
     this.totalSize =
       typeof sizeOrBuffer === "number" ? sizeOrBuffer : sizeOrBuffer.byteLength;
     this.buckets = Array.from({ length: NUM_BUCKETS }, () => []);
-    this.largeList = [{ offset: 0, size: this.totalSize }];
+    // Reserve [0, startOffset) for external tenants (e.g. WASM's data section +
+    // stack region). All returned offsets are guaranteed >= startOffset.
+    const usable = this.totalSize - startOffset;
+    this.largeList = usable > 0 ? [{ offset: startOffset, size: usable }] : [];
   }
 
   allocate(size: number): number {

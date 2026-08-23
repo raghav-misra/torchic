@@ -20,6 +20,8 @@ export interface OpParams {
   shapePtr?: number;
   stridesPtr?: number;
   scratchPtr?: number;
+  axisSize?: number;
+  innerSize?: number;
 }
 
 export interface BufferRegion {

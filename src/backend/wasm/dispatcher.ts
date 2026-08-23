@@ -16,13 +16,26 @@ export class WasmDispatcher implements Dispatcher {
 
     // Lazy so ?url resolution of kernels.wasm only happens when the WASM backend
     // is selected; otherwise Vitest / dev builds without the artifact fail.
-    const { compileKernels, createSharedMemory } = await import("./loader");
+    const { compileKernels, createSharedMemory, instantiateKernels } = await import("./loader");
 
     const [module, memory] = await Promise.all([
       compileKernels(),
       Promise.resolve(createSharedMemory(memorySizeMB)),
     ]);
     this.sab = memory.buffer as unknown as SharedArrayBuffer;
+
+    // Probe instantiate to read __stack_pointer's initial value. Wasm-ld places
+    // the module's data section + stack in [0, __stack_pointer); everything at
+    // or above that address is safe for our allocator. Without this, tensor
+    // allocations at low offsets get clobbered by any kernel that touches the
+    // WASM stack (e.g. libm::expf pushing locals).
+    const probe = await instantiateKernels(module, memory);
+    const rawExports = probe.exports as unknown as Record<string, unknown>;
+    const stackPointer = rawExports.__stack_pointer as
+      | WebAssembly.Global<"i32">
+      | undefined;
+    if (!stackPointer) throw new Error("WASM module missing __stack_pointer export");
+    const heapBase = stackPointer.value;
 
     const coordWorker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
     this.coordinator = new TypedWorker(coordWorker);
@@ -53,7 +66,7 @@ export class WasmDispatcher implements Dispatcher {
       coordinator.postMessage({
         type: "INIT_WASM_COORDINATOR",
         id: reqId,
-        payload: { memory, totalWorkers: threadCount },
+        payload: { memory, totalWorkers: threadCount, heapBase },
       });
     });
   }

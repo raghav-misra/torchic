@@ -37,6 +37,34 @@ pub unsafe extern "C" fn sum_final(input: *const f32, out: *mut f32, n: u32) {
     *out = sum;
 }
 
+// Input is contiguous with shape (outer, axis, inner). Output is (outer, inner).
+// out[o, i] = sum over k of input[o, k, i]. Each worker handles a slice of the
+// output's flat index range [start, end).
+#[no_mangle]
+pub unsafe extern "C" fn sum_axis(
+    input: *const f32,
+    out: *mut f32,
+    axis_size: u32,
+    inner_size: u32,
+    start: u32,
+    end: u32,
+) {
+    let axis_size = axis_size as usize;
+    let inner_size = inner_size as usize;
+    let start = start as usize;
+    let end = end as usize;
+    for out_i in start..end {
+        let outer = out_i / inner_size;
+        let inner = out_i % inner_size;
+        let base = outer * axis_size * inner_size + inner;
+        let mut sum = 0.0f32;
+        for k in 0..axis_size {
+            sum += *input.add(base + k * inner_size);
+        }
+        *out.add(out_i) = sum;
+    }
+}
+
 // out[i] = a[i] + scalar[0]: broadcast a length-1 tensor across all elements.
 #[no_mangle]
 pub unsafe extern "C" fn add_scalar_tensor(

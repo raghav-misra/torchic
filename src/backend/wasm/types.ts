@@ -8,7 +8,7 @@ import type {
 export type WasmInitCoordinator = {
   type: "INIT_WASM_COORDINATOR";
   id: string;
-  payload: { memory: WebAssembly.Memory; totalWorkers: number };
+  payload: { memory: WebAssembly.Memory; totalWorkers: number; heapBase: number };
 };
 
 export type WasmInitWorker = {
