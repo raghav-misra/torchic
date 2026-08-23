@@ -1,5 +1,12 @@
 import { getRegistry } from "./define";
-import type { BenchMetrics, BenchSuite, Suite, TestResult, TestSuite } from "./types";
+import type {
+  BenchMetrics,
+  BenchSuite,
+  FreeformSuite,
+  Suite,
+  TestResult,
+  TestSuite,
+} from "./types";
 
 export function mount(root: HTMLElement): void {
   for (const suite of getRegistry()) {
@@ -8,6 +15,60 @@ export function mount(root: HTMLElement): void {
 }
 
 function renderSuite(suite: Suite): HTMLElement {
+  if (suite.kind === "freeform") return renderFreeform(suite);
+  return renderParamSuite(suite);
+}
+
+function renderFreeform(suite: FreeformSuite): HTMLElement {
+  const section = el("section", "suite");
+  section.appendChild(el("h2", "", suite.name));
+  if (suite.description) section.appendChild(el("p", "desc", suite.description));
+
+  const [logEl, log] = makeLog();
+  const buttons = el("div", "buttons");
+  const btnById = new Map<string, HTMLButtonElement>();
+
+  for (const action of suite.actions) {
+    const btn = document.createElement("button");
+    btn.textContent = action.label;
+    btn.disabled = !!action.disabled;
+    btnById.set(action.id, btn);
+    buttons.appendChild(btn);
+  }
+
+  const allButtons = Array.from(btnById.values());
+
+  for (const action of suite.actions) {
+    const btn = btnById.get(action.id)!;
+    btn.addEventListener("click", async () => {
+      const prevState = new Map(allButtons.map((b) => [b, b.disabled] as const));
+      setDisabled(allButtons, true);
+      try {
+        await action.run({
+          log,
+          enable: (id: string) => {
+            const b = btnById.get(id);
+            if (b) prevState.set(b, false);
+          },
+          disable: (id: string) => {
+            const b = btnById.get(id);
+            if (b) prevState.set(b, true);
+          },
+        });
+      } catch (e) {
+        log(`error: ${String(e)}`);
+      } finally {
+        for (const [b, disabled] of prevState) b.disabled = disabled;
+      }
+    });
+  }
+
+  section.appendChild(buttons);
+  section.appendChild(logEl);
+  return section;
+}
+
+function renderParamSuite(suite: TestSuite | BenchSuite): HTMLElement {
   const section = el("section", "suite");
   section.appendChild(el("h2", "", suite.name));
   if (suite.description) section.appendChild(el("p", "desc", suite.description));
@@ -209,12 +270,12 @@ function makeBenchRunner(suite: BenchSuite, container: HTMLElement) {
 }
 
 // e.g. "threads=4" when paramName is set; "4" otherwise.
-function buttonLabel(suite: Suite, p: unknown, i: number): string {
+function buttonLabel(suite: TestSuite | BenchSuite, p: unknown, i: number): string {
   if (suite.params.length === 1) return "Run";
   return paramValueLabel(suite, p, i);
 }
 
-function paramValueLabel(suite: Suite, p: unknown, i: number): string {
+function paramValueLabel(suite: TestSuite | BenchSuite, p: unknown, i: number): string {
   const val =
     p === null || p === undefined
       ? `#${i}`

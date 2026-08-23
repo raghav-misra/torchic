@@ -9,6 +9,7 @@ import "./suites/lstm";
 import "./suites/shape-ops";
 import "./suites/safetensors";
 import "./demos/kokoro/skeleton.suite";
+import "./demos/kokoro/synthesize.suite";
 import "./demos/makemore";
 import { getRegistry } from "./framework/define";
 import type { BenchSuite, Suite, TestSuite } from "./framework/types";
@@ -46,7 +47,7 @@ function findSuite(registry: readonly Suite[], query: string): Suite | undefined
   );
 }
 
-function paramLabel(suite: Suite, param: unknown, index: number): string {
+function paramLabel(suite: TestSuite | BenchSuite, param: unknown, index: number): string {
   const val =
     param === null || param === undefined
       ? `#${index}`
@@ -56,7 +57,7 @@ function paramLabel(suite: Suite, param: unknown, index: number): string {
   return suite.paramName ? `${suite.paramName}=${val}` : val;
 }
 
-async function runOne(suite: Suite, param: unknown, index: number): Promise<void> {
+async function runOne(suite: TestSuite | BenchSuite, param: unknown, index: number): Promise<void> {
   const label = paramLabel(suite, param, index);
   setStatus(`running ${suite.name} — ${label}`);
   const ctx = {
@@ -105,6 +106,15 @@ async function main(): Promise<void> {
       kind: "error",
       message:
         `no suite matches '${suiteQuery}'. available: ` + registry.map((s) => s.name).join(" | "),
+    });
+    emit({ kind: "done" });
+    return;
+  }
+
+  if (suite.kind === "freeform") {
+    emit({
+      kind: "error",
+      message: `suite '${suite.name}' is freeform (interactive). run it in the browser at /index.html.`,
     });
     emit({ kind: "done" });
     return;

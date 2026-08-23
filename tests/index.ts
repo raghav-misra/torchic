@@ -9,6 +9,7 @@ import "./suites/lstm";
 import "./suites/shape-ops";
 import "./suites/safetensors";
 import "./demos/kokoro/skeleton.suite";
+import "./demos/kokoro/synthesize.suite";
 import "./demos/makemore";
 import "./console";
 import { mount } from "./framework/render";

@@ -32,4 +32,30 @@ export interface BenchSuite<TParam = unknown> extends BenchOptions<TParam> {
   kind: "bench";
 }
 
-export type Suite = TestSuite | BenchSuite;
+// A "freeform" suite is a list of named actions rendered as buttons. Each
+// action can enable/disable other actions via its context, letting you model
+// a small state machine (e.g. run inference -> play the resulting audio).
+export interface FreeformContext {
+  log: Log;
+  enable: (id: string) => void;
+  disable: (id: string) => void;
+}
+
+export interface FreeformAction {
+  id: string;
+  label: string;
+  disabled?: boolean;
+  run: (ctx: FreeformContext) => Promise<void>;
+}
+
+export interface FreeformOptions {
+  name: string;
+  description?: string;
+  actions: FreeformAction[];
+}
+
+export interface FreeformSuite extends FreeformOptions {
+  kind: "freeform";
+}
+
+export type Suite = TestSuite | BenchSuite | FreeformSuite;
