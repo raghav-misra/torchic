@@ -329,6 +329,7 @@ const BINARY_ELEMENTWISE = new Set([
   "GELU_BACKWARD",
   "SQRT_BACKWARD",
   "RSQRT_BACKWARD",
+  "SIGMOID_BACKWARD",
   "ADD_SCALAR_TENSOR",
 ]);
 
@@ -341,6 +342,7 @@ const STRIDED_UNARY = new Set([
   "GELU",
   "SQRT",
   "RSQRT",
+  "SIGMOID",
   "COPY",
 ]);
 
@@ -775,6 +777,19 @@ function executeKernel(
       return;
     case "RSQRT_BACKWARD":
       exports.rsqrt_backward(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        start,
+        end,
+      );
+      return;
+    case "SIGMOID":
+      stridedUnary();
+      exports.sigmoid(inputs[0].offset, output.offset, start, end);
+      return;
+    case "SIGMOID_BACKWARD":
+      exports.sigmoid_backward(
         inputs[0].offset,
         inputs[1].offset,
         output.offset,

@@ -37,6 +37,7 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   GELU_BACKWARD: { module: "binary", entry: "gelu_backward" },
   SQRT_BACKWARD: { module: "binary", entry: "sqrt_backward" },
   RSQRT_BACKWARD: { module: "binary", entry: "rsqrt_backward" },
+  SIGMOID_BACKWARD: { module: "binary", entry: "sigmoid_backward" },
   ADD_SCALAR_TENSOR: { module: "binary", entry: "add_scalar_tensor" },
 
   NEG: { module: "unary", entry: "neg" },
@@ -47,6 +48,7 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   GELU: { module: "unary", entry: "gelu" },
   SQRT: { module: "unary", entry: "sqrt_" },
   RSQRT: { module: "unary", entry: "rsqrt_" },
+  SIGMOID: { module: "unary", entry: "sigmoid" },
   COPY: { module: "unary", entry: "copy_" },
 
   FILL: { module: "fill", entry: "main" },

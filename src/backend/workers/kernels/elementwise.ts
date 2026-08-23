@@ -501,3 +501,36 @@ export function rsqrt_backward(
     gradInput[i] = gradOutput[i] * -0.5 * y * y * y;
   }
 }
+
+// sigmoid(x) = 1 / (1 + exp(-x))
+export function sigmoid(
+  a: Float32Array,
+  out: Float32Array,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  if (shape && strides) {
+    for (let i = start; i < end; i++) {
+      const x = stridedRead(a, i, shape, strides);
+      out[i] = 1 / (1 + Math.exp(-x));
+    }
+  } else {
+    for (let i = start; i < end; i++) out[i] = 1 / (1 + Math.exp(-a[i]));
+  }
+}
+
+// d/dx sigmoid(x) = sigmoid(x) * (1 - sigmoid(x)) = y * (1 - y)
+export function sigmoid_backward(
+  output: Float32Array,
+  gradOutput: Float32Array,
+  gradInput: Float32Array,
+  start: number,
+  end: number,
+) {
+  for (let i = start; i < end; i++) {
+    const y = output[i];
+    gradInput[i] = gradOutput[i] * y * (1 - y);
+  }
+}

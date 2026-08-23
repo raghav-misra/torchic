@@ -20,6 +20,7 @@ interface Results {
   gelu: Float32Array;
   sqrt: Float32Array;
   rsqrt: Float32Array;
+  sigmoid: Float32Array;
 }
 
 async function runOps(backend: Backend): Promise<Results> {
@@ -49,6 +50,7 @@ async function runOps(backend: Backend): Promise<Results> {
     gelu: await a.gelu().toArray(),
     sqrt: await a.mul(a).sqrt().toArray(),
     rsqrt: await a.mul(a).add(Tensor.fromData([1e-3])).rsqrt().toArray(),
+    sigmoid: await a.sigmoid().toArray(),
   };
 
   shutdown();
@@ -82,6 +84,7 @@ const TOLERANCES: Record<keyof Results, number> = {
   gelu: 1e-5,
   sqrt: 1e-5,
   rsqrt: 1e-5,
+  sigmoid: 1e-6,
 };
 
 async function runParity(_: null, { log }: RunContext) {

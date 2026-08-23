@@ -71,6 +71,14 @@ fn rsqrt_(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 
 @compute @workgroup_size(256)
+fn sigmoid(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  let x = heap[u.input_off + i];
+  heap[u.output_off + i] = 1.0 / (1.0 + exp(-x));
+}
+
+@compute @workgroup_size(256)
 fn copy_(@builtin(global_invocation_id) gid: vec3<u32>) {
   let i = u.start + gid.x;
   if (i >= u.end) { return; }

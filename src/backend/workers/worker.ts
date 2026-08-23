@@ -582,6 +582,12 @@ function executeKernel(
     case "RSQRT_BACKWARD":
       elementwise.rsqrt_backward(inputViews[0], inputViews[1], outputView, start, end);
       break;
+    case "SIGMOID":
+      elementwise.sigmoid(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
+    case "SIGMOID_BACKWARD":
+      elementwise.sigmoid_backward(inputViews[0], inputViews[1], outputView, start, end);
+      break;
     case "LOG":
       elementwise.log(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;

@@ -276,6 +276,33 @@ pub unsafe extern "C" fn rsqrt_backward(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn sigmoid(a: *const f32, out: *mut f32, start: u32, end: u32) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let x = *a.add(i);
+        *out.add(i) = 1.0 / (1.0 + libm::expf(-x));
+    }
+}
+
+// d/dx sigmoid(x) = y * (1 - y)
+#[no_mangle]
+pub unsafe extern "C" fn sigmoid_backward(
+    output: *const f32,
+    grad_output: *const f32,
+    grad_input: *mut f32,
+    start: u32,
+    end: u32,
+) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let y = *output.add(i);
+        *grad_input.add(i) = *grad_output.add(i) * y * (1.0 - y);
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn fill(out: *mut f32, val: f32, start: u32, end: u32) {
     let start = start as usize;
     let end = end as usize;

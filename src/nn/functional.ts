@@ -14,6 +14,10 @@ export function gelu(x: Tensor): Tensor {
   return x.gelu();
 }
 
+export function sigmoid(x: Tensor): Tensor {
+  return x.sigmoid();
+}
+
 export function softmax(x: Tensor, axis = -1): Tensor {
   return x.softmax(axis);
 }

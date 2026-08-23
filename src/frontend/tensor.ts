@@ -325,6 +325,10 @@ export class Tensor {
     return this.runUnaryOp("RSQRT");
   }
 
+  sigmoid(): Tensor {
+    return this.runUnaryOp("SIGMOID");
+  }
+
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
       throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);
@@ -456,7 +460,10 @@ export class Tensor {
   }
 
   reshape(newShape: number[]): Tensor {
-    const total = this.numElements();
+    // Reshape is a zero-copy view over row-major memory; non-contiguous inputs
+    // (e.g. from transpose) can't be reshaped directly, so materialize first.
+    const src = this.isContiguous() ? this : this.materialize();
+    const total = src.numElements();
     let unknown = -1;
     let known = 1;
     for (let i = 0; i < newShape.length; i++) {
@@ -470,21 +477,21 @@ export class Tensor {
     const resolved = newShape.slice();
     if (unknown !== -1) {
       if (known === 0 || total % known !== 0) {
-        throw new Error(`Reshape ${this.shape} to ${newShape}: not divisible by ${known}`);
+        throw new Error(`Reshape ${src.shape} to ${newShape}: not divisible by ${known}`);
       }
       resolved[unknown] = total / known;
     } else if (known !== total) {
-      throw new Error(`Reshape size mismatch: ${this.shape} (${total}) vs ${newShape} (${known})`);
+      throw new Error(`Reshape size mismatch: ${src.shape} (${total}) vs ${newShape} (${known})`);
     }
 
     const viewId = getDispatcher().nextTensorId();
-    getDispatcher().allocateView(viewId, this.id);
+    getDispatcher().allocateView(viewId, src.id);
 
-    const shouldGrad = GradMode.enabled && this.requiresGrad;
-    const out = new Tensor(viewId, resolved, shouldGrad, this.offset);
+    const shouldGrad = GradMode.enabled && src.requiresGrad;
+    const out = new Tensor(viewId, resolved, shouldGrad, src.offset);
     if (shouldGrad) {
       out.op = "RESHAPE";
-      out.prev = [this];
+      out.prev = [src];
     }
 
     return out;
@@ -633,6 +640,14 @@ export class Tensor {
           const gradId = getDispatcher().nextTensorId();
           getDispatcher().allocate(gradId, a.numElements() * 4);
           getDispatcher().runOp("RSQRT_BACKWARD", [v.id, v.grad.id], gradId);
+          a.addGrad(new Tensor(gradId, a.shape, false));
+        }
+      } else if (v.op === "SIGMOID") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          const gradId = getDispatcher().nextTensorId();
+          getDispatcher().allocate(gradId, a.numElements() * 4);
+          getDispatcher().runOp("SIGMOID_BACKWARD", [v.id, v.grad.id], gradId);
           a.addGrad(new Tensor(gradId, a.shape, false));
         }
       } else if (v.op === "LOG") {

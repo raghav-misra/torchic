@@ -29,13 +29,20 @@ Building blocks that already work in the library:
 - [x] Three backends (Workers, WASM/SIMD, WebGPU) behind one dispatcher
 - [x] `nn.Module` with `param`/`buffer`/`child`/`childList`, `state_dict`,
       `load_state_dict`, `train`/`eval`, `parameters()`
-- [x] `nn.Linear`, `nn.Embedding`, `nn.Sequential`, `nn.LayerNorm` (composed)
-- [x] `nn.functional`: `relu`, `tanh`, `gelu`, `softmax`
+- [x] `nn.Linear` (N-D input, matmuls over last dim), `nn.Embedding`,
+      `nn.Sequential`, `nn.LayerNorm` (composed)
+- [x] `nn.MultiHeadAttention`, `nn.TransformerEncoderLayer`,
+      `sinusoidalPositionalEncoding`
+- [x] `nn.functional`: `relu`, `tanh`, `gelu`, `sigmoid`, `softmax`
 - [x] `optim.SGD`
 - [x] Broadcast materialize path on all three backends
 - [x] Elementwise, matmul, transpose, softmax, sum, sum-axis, embedding fwd+bwd
 - [x] `sqrt` / `rsqrt` primitives (Workers, WASM, WebGPU)
 - [x] `gelu` primitive (Workers, WASM, WebGPU — tanh approximation used by BERT / Kokoro)
+- [x] `sigmoid` primitive (Workers, WASM, WebGPU)
+- [x] N-D `Tensor.transpose(dim0, dim1)` — zero-copy stride swap
+- [x] Batched matmul `Tensor.bmm()` — Workers, WASM, WebGPU
+- [x] `Tensor.reshape([-1])` auto-materializes non-contiguous inputs
 - [x] Headless bench harness (vite + puppeteer) so all this can be exercised
       from CLI without opening a browser tab
 
@@ -50,13 +57,13 @@ style vector. What torchic is still missing:
 - [ ] `Conv1D` (fwd, plus dilation and padding modes) — critical, used
       everywhere in the decoder
 - [ ] `ConvTranspose1D` — vocoder upsampling
-- [ ] `LayerNorm` — transformer blocks
+- [x] `LayerNorm` — transformer blocks
 - [ ] `GroupNorm` / `InstanceNorm` — decoder normalization
-- [ ] `GELU` — transformer feed-forward
+- [x] `GELU` — transformer feed-forward
 - [ ] `LeakyReLU`, `SiLU` — decoder activations
 - [ ] `LSTM` cell (uni + bidirectional) — prosody predictor
-- [ ] Multi-head attention (composable from matmul + softmax; wants a fused
-      kernel eventually for perf)
+- [x] Multi-head attention (composed from Linear + BMM + softmax + transpose;
+      a fused GPU kernel is a later perf pass)
 - [ ] `Concat` / `Split` on arbitrary axes
 - [ ] `Gather` / advanced indexing beyond `embedding`
 - [ ] Rotary embeddings (nice-to-have; only if the exact block wants them)

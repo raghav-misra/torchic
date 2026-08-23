@@ -95,6 +95,15 @@ export interface KernelExports {
     end: number,
   ): void;
 
+  sigmoid(aPtr: number, outPtr: number, start: number, end: number): void;
+  sigmoid_backward(
+    outputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    start: number,
+    end: number,
+  ): void;
+
   fill(outPtr: number, val: number, start: number, end: number): void;
   copy(inputPtr: number, outPtr: number, start: number, end: number): void;
 

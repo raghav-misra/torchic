@@ -184,7 +184,7 @@ export class WebGPUDispatcher implements Dispatcher {
       inA.free();
       return;
     }
-    if (op === "SQRT_BACKWARD" || op === "RSQRT_BACKWARD") {
+    if (op === "SQRT_BACKWARD" || op === "RSQRT_BACKWARD" || op === "SIGMOID_BACKWARD") {
       return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
     }
     if (
@@ -196,6 +196,7 @@ export class WebGPUDispatcher implements Dispatcher {
       op === "GELU" ||
       op === "SQRT" ||
       op === "RSQRT" ||
+      op === "SIGMOID" ||
       op === "COPY"
     ) {
       const inA =
