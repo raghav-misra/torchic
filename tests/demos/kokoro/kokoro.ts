@@ -52,7 +52,7 @@ export class Kokoro extends Module {
   async forward(
     inputIds: Tensor,
     refS: Tensor,
-    opts: { speed?: number } = {},
+    opts: { speed?: number; maxDurPerPhoneme?: number } = {},
   ): Promise<{ audio: Float32Array; predDur: number[] }> {
     if (inputIds.shape.length !== 2) {
       throw new Error(`Kokoro.forward: input_ids must be [B, T], got ${inputIds.shape}`);
@@ -61,6 +61,7 @@ export class Kokoro extends Module {
       throw new Error(`Kokoro.forward: B=1 only, got ${inputIds.shape[0]}`);
     }
     const speed = opts.speed ?? 1;
+    const maxDur = opts.maxDurPerPhoneme ?? Infinity;
 
     const B = 1;
     const T = inputIds.shape[1];
@@ -79,7 +80,10 @@ export class Kokoro extends Module {
     const durationSum = durationLogits.sigmoid().sum(-1);
     const durationArr = await durationSum.toArray();
     const predDur: number[] = [];
-    for (let t = 0; t < T; t++) predDur.push(Math.max(1, Math.round(durationArr[t] / speed)));
+    for (let t = 0; t < T; t++) {
+      const raw = Math.max(1, Math.round(durationArr[t] / speed));
+      predDur.push(Math.min(raw, maxDur));
+    }
 
     const L = predDur.reduce((a, b) => a + b, 0);
     const alnData = new Float32Array(T * L);

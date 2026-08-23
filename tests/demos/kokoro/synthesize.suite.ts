@@ -1,4 +1,4 @@
-import { Tensor, init, shutdown, noGradSync } from "../../../src/index";
+import { Tensor, init, shutdown, noGrad, trackTensors, nn } from "../../../src/index";
 import { defineFreeform } from "../../framework/define";
 import type { FreeformContext } from "../../framework/types";
 import { Kokoro } from "./index";
@@ -17,29 +17,100 @@ const SAMPLES = {
 interface State {
   model: Kokoro | null;
   refS: Tensor | null;
+  voice: nn.SafetensorsEntry | null;
+  weightsLoaded: boolean;
   audio: Float32Array | null;
   audioCtx: AudioContext | null;
 }
 
-const state: State = { model: null, refS: null, audio: null, audioCtx: null };
+const state: State = {
+  model: null,
+  refS: null,
+  voice: null,
+  weightsLoaded: false,
+  audio: null,
+  audioCtx: null,
+};
+
+function pickFile(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    (input as HTMLInputElement & { oncancel?: () => void }).oncancel = () => resolve(null);
+    input.click();
+  });
+}
 
 async function initBackend(ctx: FreeformContext): Promise<void> {
-  ctx.log("initializing webgpu backend...");
+  const memorySizeMB = 1536;
+  ctx.log("initializing wasm backend (SIMD; more stable large-heap than webgpu today)...");
   try {
-    await init({ backend: "webgpu", memorySizeMB: 512 });
-    ctx.log("webgpu ready.");
+    await init({ backend: "wasm", threadCount: 4, memorySizeMB });
+    ctx.log(`wasm ready (heap ${memorySizeMB} MB).`);
   } catch (e) {
-    ctx.log(`webgpu init failed (${String(e)}), falling back to wasm.`);
-    await init({ backend: "wasm", threadCount: 4, memorySizeMB: 512 });
-    ctx.log("wasm ready.");
+    ctx.log(`wasm init failed (${String(e)}), falling back to webgpu.`);
+    await init({ backend: "webgpu", memorySizeMB });
+    ctx.log(`webgpu ready (heap ${memorySizeMB} MB).`);
   }
   ctx.log("building Kokoro module tree (~82M random-init params)...");
   state.model = new Kokoro();
   state.model.eval();
   state.refS = Tensor.randn([1, 256]);
   ctx.log("model ready.");
+  ctx.enable("load_model");
+  ctx.enable("load_voice");
   ctx.enable("synthesize_hello");
   ctx.disable("init");
+}
+
+async function loadModel(ctx: FreeformContext): Promise<void> {
+  if (!state.model) return;
+  const file = await pickFile(".safetensors");
+  if (!file) {
+    ctx.log("no file selected.");
+    return;
+  }
+  ctx.log(`reading ${file.name} (${(file.size / 1e6).toFixed(1)} MB)...`);
+  const buf = await file.arrayBuffer();
+  const parsed = nn.parseSafetensors(buf);
+  ctx.log(`parsed ${Object.keys(parsed).length} tensors from checkpoint.`);
+  const { missing, unexpected } = state.model.load_safetensors(parsed, { strict: false });
+  ctx.log(`load: ${missing.length} missing, ${unexpected.length} unexpected keys.`);
+  if (missing.length > 0) ctx.log(`  first missing: ${missing.slice(0, 5).join(", ")}`);
+  if (unexpected.length > 0) ctx.log(`  first unexpected: ${unexpected.slice(0, 5).join(", ")}`);
+  state.weightsLoaded = true;
+  ctx.log("model weights loaded.");
+}
+
+async function loadVoice(ctx: FreeformContext): Promise<void> {
+  const file = await pickFile(".safetensors");
+  if (!file) {
+    ctx.log("no file selected.");
+    return;
+  }
+  ctx.log(`reading voice ${file.name} (${(file.size / 1024).toFixed(1)} KB)...`);
+  const buf = await file.arrayBuffer();
+  const parsed = nn.parseSafetensors(buf);
+  const voice = parsed["voice"];
+  if (!voice) {
+    ctx.log(`expected 'voice' key; got: ${Object.keys(parsed).join(", ")}`);
+    return;
+  }
+  ctx.log(`voice tensor shape [${voice.shape.join(", ")}], ${voice.data.length} floats.`);
+  state.voice = voice;
+}
+
+// Kokoro voice packs are [511, 1, 256] — one style vector per phoneme count.
+// Reference kokoro-js uses voice[len(input_ids) - 1].
+function pickRefFromVoice(voice: nn.SafetensorsEntry, tokenCount: number): Tensor {
+  const rows = voice.shape[0];
+  const styleSize = voice.shape[voice.shape.length - 1];
+  const idx = Math.min(Math.max(tokenCount - 1, 0), rows - 1);
+  const perRow = voice.data.length / rows;
+  const slice = voice.data.subarray(idx * perRow, (idx + 1) * perRow);
+  return Tensor.fromData(Array.from(slice), [1, styleSize]);
 }
 
 async function synthesize(ctx: FreeformContext, sample: keyof typeof SAMPLES): Promise<void> {
@@ -51,8 +122,21 @@ async function synthesize(ctx: FreeformContext, sample: keyof typeof SAMPLES): P
   ctx.log(`synthesizing '${info.label}' (${info.ids.length} tokens)...`);
   const inputIds = Tensor.fromData(info.ids.slice(), [1, info.ids.length]);
 
+  const usingRealWeights = state.weightsLoaded;
+  const ref = state.voice && usingRealWeights
+    ? pickRefFromVoice(state.voice, info.ids.length)
+    : state.refS;
+  const speed = usingRealWeights ? 1 : 100;
+  ctx.log(
+    `mode: ${usingRealWeights ? "real weights" : "random weights (noise expected)"}, ref_s=${
+      state.voice ? "voice pack" : "randn"
+    }, speed=${speed}`,
+  );
+
   const started = performance.now();
-  const { audio, predDur } = await noGradSync(() => state.model!.forward(inputIds, state.refS!));
+  const { audio, predDur } = await trackTensors(() =>
+    noGrad(() => state.model!.forward(inputIds, ref, { speed })),
+  );
   const elapsed = (performance.now() - started) / 1000;
   const audioSec = audio.length / SAMPLE_RATE;
   const rtf = elapsed / audioSec;
@@ -69,7 +153,6 @@ async function synthesize(ctx: FreeformContext, sample: keyof typeof SAMPLES): P
     if (a > peak) peak = a;
   }
   ctx.log(`peak amplitude: ${peak.toExponential(2)}${nans ? ` (${nans} NaN samples)` : ""}`);
-  if (nans > 0) ctx.log("note: NaNs likely from random-init weights; load a real checkpoint to hear anything.");
 
   state.audio = audio;
   ctx.enable("play");
@@ -86,7 +169,6 @@ function play(ctx: FreeformContext): void {
     return;
   }
   state.audioCtx ??= new AC({ sampleRate: SAMPLE_RATE });
-  // Clamp NaN / out-of-range samples so playback doesn't error out with random weights.
   const clean = new Float32Array(state.audio.length);
   for (let i = 0; i < state.audio.length; i++) {
     const v = state.audio[i];
@@ -106,11 +188,15 @@ function cleanup(ctx: FreeformContext): void {
   state.audio = null;
   state.model = null;
   state.refS = null;
+  state.voice = null;
+  state.weightsLoaded = false;
   if (state.audioCtx) {
     state.audioCtx.close();
     state.audioCtx = null;
   }
   shutdown();
+  ctx.disable("load_model");
+  ctx.disable("load_voice");
   ctx.disable("synthesize_hello");
   ctx.disable("play");
   ctx.enable("init");
@@ -119,11 +205,13 @@ function cleanup(ctx: FreeformContext): void {
 defineFreeform({
   name: "Kokoro: end-to-end synthesis",
   description:
-    "State machine: init a backend + instantiate Kokoro with random weights, synthesize a fixed phoneme sequence, play the resulting PCM. Real audio requires loading the converted safetensors checkpoint (see scripts/convert-kokoro-checkpoint.py); random weights sound like noise but exercise the full forward pipeline.",
+    "State machine: init backend + build Kokoro, optionally load a converted safetensors checkpoint + voice pack, synthesize a fixed phoneme sequence, play the resulting PCM. Without real weights the pipeline still runs but produces noise (speed=100 caps durations to 1 per phoneme so intermediates fit in memory).",
   actions: [
     { id: "init", label: "1. Init backend + build model", run: initBackend },
-    { id: "synthesize_hello", label: `2. Synthesize "${SAMPLES.hello_world.label}"`, disabled: true, run: (c) => synthesize(c, "hello_world") },
-    { id: "play", label: "3. Play last synthesis", disabled: true, run: async (c) => play(c) },
+    { id: "load_model", label: "2a. Load model.safetensors", disabled: true, run: loadModel },
+    { id: "load_voice", label: "2b. Load voice.safetensors", disabled: true, run: loadVoice },
+    { id: "synthesize_hello", label: `3. Synthesize "${SAMPLES.hello_world.label}"`, disabled: true, run: (c) => synthesize(c, "hello_world") },
+    { id: "play", label: "4. Play last synthesis", disabled: true, run: async (c) => play(c) },
     { id: "cleanup", label: "Shutdown", run: async (c) => cleanup(c) },
   ],
 });

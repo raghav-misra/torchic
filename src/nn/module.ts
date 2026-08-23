@@ -124,7 +124,10 @@ export abstract class Module {
   // pair in the checkpoint gets combined into `weight = g * v / ||v||` before
   // being written into the destination tensor. Layers that use weight_norm at
   // training time can then run with a plain `weight` tensor at inference.
-  load_safetensors(sd: SafetensorsMap, opts: { strict?: boolean; renameMap?: Record<string, string> } = {}): void {
+  load_safetensors(
+    sd: SafetensorsMap,
+    opts: { strict?: boolean; renameMap?: Record<string, string> } = {},
+  ): { missing: string[]; unexpected: string[] } {
     const strict = opts.strict ?? true;
     const rename = opts.renameMap;
     const own = this.state_dict();
@@ -168,6 +171,7 @@ export abstract class Module {
       if (unexpected.length) parts.push(`unexpected (${unexpected.length}): ${unexpected.slice(0, 5).join(", ")}`);
       throw new Error(`load_safetensors: ${parts.join("; ")}`);
     }
+    return { missing, unexpected };
   }
 
   eval(): this {
