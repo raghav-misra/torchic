@@ -157,6 +157,7 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "SUM_AXIS") return this.dispatchSumAxis(pipeline, im, outMeta, params);
     if (op === "CONV1D" || op === "CONV_TRANSPOSE_1D")
       return this.dispatchConv1d(pipeline, im, outMeta, params);
+    if (op === "CONCAT_SLAB") return this.dispatchConcatSlab(pipeline, im, outMeta, params);
 
     // Elementwise families: materialize any non-contiguous operand into scratch,
     // then dispatch the contiguous fast path.
@@ -544,6 +545,31 @@ export class WebGPUDispatcher implements Dispatcher {
     iview[12] = padding;
     iview[13] = dilation;
     const total = B * Cout * Lout;
+    this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
+  }
+
+  private dispatchConcatSlab(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const outerSize = required(params.outerSize, "outerSize");
+    const inAxisSize = required(params.inAxisSize, "inAxisSize");
+    const outAxisSize = required(params.outAxisSize, "outAxisSize");
+    const axisOffset = required(params.axisOffset, "axisOffset");
+    const innerSize = required(params.innerSize, "innerSize");
+    const total = outerSize * inAxisSize * innerSize;
+    const u = new Uint32Array([
+      inputs[0].offset >>> 2,
+      out.offset >>> 2,
+      outerSize,
+      inAxisSize,
+      outAxisSize,
+      axisOffset,
+      innerSize,
+      total,
+    ]);
     this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
   }
 

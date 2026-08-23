@@ -8,6 +8,7 @@ mod reductions;
 mod softmax;
 mod transpose;
 mod conv;
+mod concat;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

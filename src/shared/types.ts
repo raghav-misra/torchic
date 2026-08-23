@@ -35,6 +35,11 @@ export interface OpParams {
   hasBias?: boolean;
   // Activation params.
   negativeSlope?: number;
+  // Concat params.
+  outerSize?: number;
+  inAxisSize?: number;
+  outAxisSize?: number;
+  axisOffset?: number;
 }
 
 export interface BufferRegion {

@@ -256,6 +256,105 @@ export class Tensor {
     return new Tensor(id, shape, requiresGrad);
   }
 
+  // Concatenate tensors along `axis`. All non-axis dims must match. Inference-
+  // only for now (no autograd wiring). Materializes each input, then dispatches
+  // one CONCAT_SLAB per input into the appropriate slab of a fresh output.
+  static concat(tensors: Tensor[], axis: number): Tensor {
+    if (tensors.length === 0) throw new Error(`concat: no tensors`);
+    const first = tensors[0];
+    const rank = first.shape.length;
+    const normAxis = axis < 0 ? axis + rank : axis;
+    if (normAxis < 0 || normAxis >= rank) throw new Error(`concat: bad axis ${axis} for rank ${rank}`);
+    let outAxisSize = 0;
+    for (const t of tensors) {
+      if (t.shape.length !== rank) throw new Error(`concat: rank mismatch ${first.shape} vs ${t.shape}`);
+      for (let d = 0; d < rank; d++) {
+        if (d === normAxis) continue;
+        if (t.shape[d] !== first.shape[d]) {
+          throw new Error(`concat: dim ${d} mismatch ${first.shape} vs ${t.shape}`);
+        }
+      }
+      outAxisSize += t.shape[normAxis];
+    }
+    let outerSize = 1;
+    for (let d = 0; d < normAxis; d++) outerSize *= first.shape[d];
+    let innerSize = 1;
+    for (let d = normAxis + 1; d < rank; d++) innerSize *= first.shape[d];
+
+    const outShape = first.shape.slice();
+    outShape[normAxis] = outAxisSize;
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, outShape.reduce((a, b) => a * b, 1) * 4);
+
+    let axisOffset = 0;
+    for (const t of tensors) {
+      const src = t.materialize();
+      const inAxisSize = t.shape[normAxis];
+      getDispatcher().runOp("CONCAT_SLAB", [src.id], outId, {
+        outerSize,
+        inAxisSize,
+        outAxisSize,
+        axisOffset,
+        innerSize,
+      });
+      axisOffset += inAxisSize;
+    }
+    return new Tensor(outId, outShape, false);
+  }
+
+  // Constant padding on the last dim: prepend `left` copies of `value` and
+  // append `right` copies. Composed from Tensor.concat + a small filled tensor.
+  // For zero padding this is exact; other modes (reflect/replicate) can be
+  // added as their own kernels if profiling shows the compose is too slow.
+  pad1d(left: number, right: number, value = 0): Tensor {
+    if (left < 0 || right < 0) throw new Error(`pad1d: negative pad`);
+    if (left === 0 && right === 0) return this;
+    const shape = this.shape.slice();
+    const rank = shape.length;
+    if (rank < 1) throw new Error(`pad1d: needs at least 1D input`);
+    const parts: Tensor[] = [];
+    if (left > 0) {
+      const pShape = shape.slice();
+      pShape[rank - 1] = left;
+      const p = Tensor.zeros(pShape);
+      if (value !== 0) {
+        const size = pShape.reduce((a, b) => a * b, 1);
+        p.write(new Float32Array(size).fill(value));
+      }
+      parts.push(p);
+    }
+    parts.push(this);
+    if (right > 0) {
+      const pShape = shape.slice();
+      pShape[rank - 1] = right;
+      const p = Tensor.zeros(pShape);
+      if (value !== 0) {
+        const size = pShape.reduce((a, b) => a * b, 1);
+        p.write(new Float32Array(size).fill(value));
+      }
+      parts.push(p);
+    }
+    return Tensor.concat(parts, -1);
+  }
+
+  // Split into `sections` equal-sized chunks along `axis` (last dim by default).
+  // Zero-copy: each chunk is a slice view. Requires shape[axis] divisible by sections.
+  split(sections: number, axis = -1): Tensor[] {
+    const rank = this.shape.length;
+    const normAxis = axis < 0 ? axis + rank : axis;
+    const dim = this.shape[normAxis];
+    if (dim % sections !== 0) throw new Error(`split: ${dim} not divisible by ${sections}`);
+    const chunk = dim / sections;
+    const out: Tensor[] = [];
+    for (let s = 0; s < sections; s++) {
+      const ranges: [number, number][] = this.shape.map((d, i) =>
+        i === normAxis ? [s * chunk, (s + 1) * chunk] as [number, number] : [0, d],
+      );
+      out.push(this.slice(ranges));
+    }
+    return out;
+  }
+
   /**
    * Write data into this tensor's backing buffer. `data` should be a
    * Float32Array (or array convertible to it); if shorter than the

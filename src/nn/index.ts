@@ -5,6 +5,8 @@ export {
   Embedding,
   Sequential,
   LayerNorm,
+  GroupNorm,
+  InstanceNorm1d,
   MultiHeadAttention,
   TransformerEncoderLayer,
   Conv1d,

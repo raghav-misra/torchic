@@ -5,6 +5,7 @@ import * as transpose from "./kernels/transpose";
 import * as reductions from "./kernels/reductions";
 import * as embedding from "./kernels/embedding";
 import * as conv from "./kernels/conv";
+import * as concat from "./kernels/concat";
 import { defineWorkerOnMessage } from "../../shared/utils";
 import type { OpParams, BufferRegion } from "../../shared/types";
 import { CoordinatorRequest, ComputeRequest, ComputeResponse, TypedPort } from "../../shared/types";
@@ -443,6 +444,32 @@ function executeKernel(
         dilation,
         startBatch,
         endBatch,
+      );
+    }
+    return;
+  }
+
+  if (op === "CONCAT_SLAB") {
+    const outerSize = required(params.outerSize, "outerSize");
+    const inAxisSize = required(params.inAxisSize, "inAxisSize");
+    const outAxisSize = required(params.outAxisSize, "outAxisSize");
+    const axisOffset = required(params.axisOffset, "axisOffset");
+    const innerSize = required(params.innerSize, "innerSize");
+    const total = outerSize * inAxisSize * innerSize;
+    const perWorker = Math.ceil(total / totalWorkers);
+    const start = workerIndex * perWorker;
+    const end = Math.min(start + perWorker, total);
+    if (start < total) {
+      concat.concat_slab(
+        inputViews[0],
+        outputView,
+        outerSize,
+        inAxisSize,
+        outAxisSize,
+        axisOffset,
+        innerSize,
+        start,
+        end,
       );
     }
     return;

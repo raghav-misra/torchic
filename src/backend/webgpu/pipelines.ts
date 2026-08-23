@@ -9,6 +9,7 @@ import reductionsWgsl from "./shaders/reductions.wgsl?raw";
 import randnWgsl from "./shaders/randn.wgsl?raw";
 import embeddingWgsl from "./shaders/embedding.wgsl?raw";
 import convWgsl from "./shaders/conv.wgsl?raw";
+import concatWgsl from "./shaders/concat.wgsl?raw";
 
 const MODULE_SOURCE: Record<string, string> = {
   binary: binaryWgsl,
@@ -22,6 +23,7 @@ const MODULE_SOURCE: Record<string, string> = {
   randn: randnWgsl,
   embedding: embeddingWgsl,
   conv: convWgsl,
+  concat: concatWgsl,
 };
 
 // Op → (shader module, entry point). Entry points in WGSL can't shadow certain
@@ -70,6 +72,7 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   EMBEDDING_BACKWARD: { module: "embedding", entry: "embedding_backward" },
   CONV1D: { module: "conv", entry: "conv1d" },
   CONV_TRANSPOSE_1D: { module: "conv", entry: "conv_transpose1d" },
+  CONCAT_SLAB: { module: "concat", entry: "concat_slab" },
 };
 
 export interface Pipelines {

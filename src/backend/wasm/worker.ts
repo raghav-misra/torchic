@@ -631,6 +631,31 @@ function executeKernel(
     return;
   }
 
+  if (op === "CONCAT_SLAB") {
+    const outerSize = required(params.outerSize, "outerSize");
+    const inAxisSize = required(params.inAxisSize, "inAxisSize");
+    const outAxisSize = required(params.outAxisSize, "outAxisSize");
+    const axisOffset = required(params.axisOffset, "axisOffset");
+    const innerSize = required(params.innerSize, "innerSize");
+    const total = outerSize * inAxisSize * innerSize;
+    const perWorker = Math.ceil(total / totalWorkers);
+    const start = workerIndex * perWorker;
+    const end = Math.min(start + perWorker, total);
+    if (start >= total) return;
+    exports.concat_slab(
+      inputs[0].offset,
+      output.offset,
+      outerSize,
+      inAxisSize,
+      outAxisSize,
+      axisOffset,
+      innerSize,
+      start,
+      end,
+    );
+    return;
+  }
+
   if (op === "SOFTMAX" || op === "SOFTMAX_BACKWARD" || op === "TRANSPOSE") {
     const m = required(params.m, "m");
     const n = required(params.n, "n");

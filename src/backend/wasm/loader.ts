@@ -249,6 +249,18 @@ export interface KernelExports {
     startBatch: number,
     endBatch: number,
   ): void;
+
+  concat_slab(
+    inputPtr: number,
+    outPtr: number,
+    outerSize: number,
+    inAxisSize: number,
+    outAxisSize: number,
+    axisOffset: number,
+    innerSize: number,
+    start: number,
+    end: number,
+  ): void;
 }
 
 export interface WasmInstance {

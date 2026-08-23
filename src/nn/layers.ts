@@ -99,6 +99,102 @@ export class LayerNorm extends Module {
   }
 }
 
+// GroupNorm over a [B, C, ...] tensor. Splits C into `numGroups`, computes
+// mean/var over (channels-per-group * spatial dims), applies per-channel
+// affine. Matches PyTorch semantics; composed from primitives.
+export class GroupNorm extends Module {
+  weight: Tensor;
+  bias: Tensor;
+  private eps: Tensor;
+  private numGroups: number;
+  private numChannels: number;
+
+  constructor(numGroups: number, numChannels: number, eps = 1e-5) {
+    super();
+    if (numChannels % numGroups !== 0) {
+      throw new Error(`GroupNorm: channels ${numChannels} not divisible by groups ${numGroups}`);
+    }
+    this.numGroups = numGroups;
+    this.numChannels = numChannels;
+    this.weight = this.param("weight", Tensor.ones([numChannels], true));
+    this.bias = this.param("bias", Tensor.zeros([numChannels], true));
+    this.eps = Tensor.fromData([eps]);
+  }
+
+  forward(x: Tensor): Tensor {
+    const shape = x.shape;
+    if (shape.length < 2) throw new Error(`GroupNorm input must be at least [B, C], got ${shape}`);
+    const B = shape[0];
+    const C = shape[1];
+    if (C !== this.numChannels) {
+      throw new Error(`GroupNorm expected C=${this.numChannels}, got ${C}`);
+    }
+    const G = this.numGroups;
+    const Cg = C / G;
+    let spatial = 1;
+    for (let i = 2; i < shape.length; i++) spatial *= shape[i];
+
+    // Normalize over (Cg * spatial). Reshape to [B, G, Cg*spatial], mean-var
+    // along last axis, then reshape back.
+    const grouped = x.reshape([B, G, Cg * spatial]);
+    const mean = grouped.mean(-1, true);
+    const centered = grouped.sub(mean);
+    const variance = centered.mul(centered).mean(-1, true);
+    const invStd = variance.add(this.eps).rsqrt();
+    const norm = centered.mul(invStd).reshape(shape);
+
+    // Broadcast per-channel affine. weight/bias are [C]; reshape to [1, C, 1, ...]
+    // so they broadcast across batch and spatial.
+    const affineShape = new Array(shape.length).fill(1);
+    affineShape[1] = C;
+    const w = this.weight.reshape(affineShape);
+    const b = this.bias.reshape(affineShape);
+    return norm.mul(w).add(b);
+  }
+}
+
+// InstanceNorm over [B, C, ...] is GroupNorm with G=C: each channel of each
+// sample is independently normalized. Common in StyleTTS2 decoder blocks.
+export class InstanceNorm1d extends Module {
+  weight: Tensor | null;
+  bias: Tensor | null;
+  private eps: Tensor;
+  private affine: boolean;
+  private numFeatures: number;
+
+  constructor(numFeatures: number, eps = 1e-5, affine = false) {
+    super();
+    this.numFeatures = numFeatures;
+    this.affine = affine;
+    this.eps = Tensor.fromData([eps]);
+    if (affine) {
+      this.weight = this.param("weight", Tensor.ones([numFeatures], true));
+      this.bias = this.param("bias", Tensor.zeros([numFeatures], true));
+    } else {
+      this.weight = null;
+      this.bias = null;
+    }
+  }
+
+  forward(x: Tensor): Tensor {
+    if (x.shape.length !== 3) throw new Error(`InstanceNorm1d input must be [B, C, L], got ${x.shape}`);
+    const [_B, C, _L] = x.shape;
+    if (C !== this.numFeatures) throw new Error(`InstanceNorm1d expected C=${this.numFeatures}, got ${C}`);
+    // Normalize over the last dim (L). Mean/var per (B, C, :).
+    const mean = x.mean(-1, true);
+    const centered = x.sub(mean);
+    const variance = centered.mul(centered).mean(-1, true);
+    const invStd = variance.add(this.eps).rsqrt();
+    const norm = centered.mul(invStd);
+    if (this.affine && this.weight && this.bias) {
+      const w = this.weight.reshape([1, C, 1]);
+      const b = this.bias.reshape([1, C, 1]);
+      return norm.mul(w).add(b);
+    }
+    return norm;
+  }
+}
+
 // Standard scaled dot-product multi-head attention over [B, S, D].
 // Composes from Linear + reshape/transpose + bmm + softmax. Attention pattern:
 //   Q, K, V = W_{q,k,v}(x)           # each [B, S, D]

@@ -60,7 +60,7 @@ style vector. What torchic is still missing:
 - [x] `Conv1D` fwd (Workers, WASM, WebGPU)
 - [x] `ConvTranspose1D` fwd (Workers, WASM, WebGPU)
 - [x] `LayerNorm` — transformer blocks
-- [ ] `GroupNorm` / `InstanceNorm` — decoder normalization
+- [x] `GroupNorm` / `InstanceNorm1d` (composed from primitives)
 - [x] `GELU` — transformer feed-forward
 - [x] `sigmoid` — LSTM gates
 - [x] `LeakyReLU`, `SiLU` — decoder activations (Workers, WASM, WebGPU)
@@ -68,12 +68,14 @@ style vector. What torchic is still missing:
       matmul + sigmoid + tanh + slice; bidirectional/sequence wrapper TBD)
 - [x] Multi-head attention (composed from Linear + BMM + softmax + transpose;
       a fused GPU kernel is a later perf pass)
-- [ ] `Concat` / `Split` on arbitrary axes
+- [x] `Concat` on arbitrary axes (Workers, WASM, WebGPU); `Split` zero-copy
+- [x] `Pad1d` (constant mode via concat)
 - [ ] `Gather` / advanced indexing beyond `embedding`
 - [ ] Rotary embeddings (nice-to-have; only if the exact block wants them)
-- [ ] `Pad` (reflect + replicate for causal conv stacks)
-- [ ] `ISTFT` — vocoder tail (can start as a CPU-side implementation, GPU
-      later)
+- [ ] `Pad` reflect / replicate modes (only if the model actually needs them
+      — constant is enough for a first Kokoro pass)
+- [x] `STFT` / `ISTFT` — main-thread CPU DSP (src/dsp/), pow2 FFT, Hann
+      window, WOLA reconstruction
 
 ### Loaders
 

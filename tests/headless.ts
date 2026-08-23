@@ -6,6 +6,7 @@ import "./suites/bmm";
 import "./suites/attention";
 import "./suites/conv1d";
 import "./suites/lstm";
+import "./suites/shape-ops";
 import "./demos/makemore";
 import { getRegistry } from "./framework/define";
 import type { BenchSuite, Suite, TestSuite } from "./framework/types";
