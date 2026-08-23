@@ -122,36 +122,6 @@ export class AdaINResBlock1 extends Module {
 // F0-driven harmonic sine generator. Zero learnable params; the forward pass
 // runs on the CPU as Float32Array manipulation because cumsum + rand are
 // awkward on the current kernel set and the buffer is small (24kHz × seconds).
-// Linear interpolation (matches F.interpolate mode='linear', align_corners=False).
-// input length N -> output length M by mapping output pixel (i+0.5) to input
-// position (i+0.5) * N/M - 0.5, then linearly blending the two neighbours.
-function interpolate1d(input: Float32Array, targetLength: number): Float32Array {
-  const N = input.length;
-  const M = targetLength;
-  const out = new Float32Array(M);
-  if (N === 0 || M === 0) return out;
-  if (N === 1) {
-    out.fill(input[0]);
-    return out;
-  }
-  const scale = N / M;
-  for (let i = 0; i < M; i++) {
-    const pos = (i + 0.5) * scale - 0.5;
-    if (pos <= 0) {
-      out[i] = input[0];
-      continue;
-    }
-    if (pos >= N - 1) {
-      out[i] = input[N - 1];
-      continue;
-    }
-    const lo = Math.floor(pos);
-    const frac = pos - lo;
-    out[i] = input[lo] * (1 - frac) + input[lo + 1] * frac;
-  }
-  return out;
-}
-
 export class SineGen {
   private sampleRate: number;
   private upsampleScale: number;
@@ -181,41 +151,25 @@ export class SineGen {
   }
 
   // f0Values: [B, L] flat Float32Array. Returns sines [B, L, dim], uv [B, L].
-  // Matches reference SineGen._f02sine's downsample-cumsum-upsample phase path
-  // (smooths rapid F0 changes) plus the rand_ini per-harmonic phase offset.
+  // rand_ini offsets the initial phase per harmonic (except the fundamental)
+  // so the excitation isn't a stack of in-phase sines at utterance start.
   forward(f0Values: Float32Array, B: number, L: number): { sines: Float32Array; uv: Float32Array } {
     const dim = this.dim;
-    const S = this.upsampleScale;
-    const L_low = Math.max(1, Math.floor(L / S));
     const sines = new Float32Array(B * L * dim);
     const uv = new Float32Array(B * L);
     const twoPi = 2 * Math.PI;
 
-    // Random init phase per harmonic; fundamental (h=0) stays at 0.
     const randInit = new Float32Array(dim);
     for (let h = 1; h < dim; h++) randInit[h] = Math.random();
 
     for (let b = 0; b < B; b++) {
       for (let h = 0; h < dim; h++) {
         const mult = h + 1;
-        const rad = new Float32Array(L);
+        let phaseSum = randInit[h];
         for (let l = 0; l < L; l++) {
-          rad[l] = ((f0Values[b * L + l] * mult) / this.sampleRate) % 1;
-        }
-        rad[0] += randInit[h];
-
-        // Downsample rad to low rate, cumsum, upsample the scaled phase back.
-        const radLow = interpolate1d(rad, L_low);
-        const phaseLow = new Float32Array(L_low);
-        let cum = 0;
-        for (let l = 0; l < L_low; l++) {
-          cum += radLow[l];
-          phaseLow[l] = cum * twoPi * S;
-        }
-        const phaseHigh = interpolate1d(phaseLow, L);
-
-        for (let l = 0; l < L; l++) {
-          sines[b * L * dim + l * dim + h] = Math.sin(phaseHigh[l]) * this.sineAmp;
+          const rad = ((f0Values[b * L + l] * mult) / this.sampleRate) % 1;
+          phaseSum += rad;
+          sines[b * L * dim + l * dim + h] = Math.sin(phaseSum * twoPi) * this.sineAmp;
         }
       }
       for (let l = 0; l < L; l++) {
