@@ -1,7 +1,7 @@
 import kernelsUrl from "./kernels.wasm?url";
 
 const PAGES_PER_MB = 16; // 64 KiB pages
-const MAX_MEMORY_MB = 1024; // matches --max-memory=1073741824 in the Rust build
+const MAX_MEMORY_MB = 2048; // matches --max-memory=2147483648 in the Rust build
 
 export interface KernelExports {
   matmul(
