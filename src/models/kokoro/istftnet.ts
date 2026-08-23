@@ -1,28 +1,10 @@
-// ISTFTNet decoder for Kokoro. Reference:
-//   https://github.com/yl4579/StyleTTS2/blob/main/Modules/istftnet.py
-//
-// Top-level architecture (kokoro-v1_0):
-//   input:  [B, hidden_dim=512, T_asr]
-//           + style: [B, style_dim=128], F0: [B, T_asr'], N: [B, T_asr']
-//   1. F0 conv-encoded, spatially aligned with the acoustic frames
-//   2. AdainResBlk1d stack (encode) — matches predictor's AdainResBlk1d
-//   3. upsample stack: for each (rate, kernel) in
-//      zip(upsample_rates=[10, 6], upsample_kernel_sizes=[20, 12]):
-//        ConvTranspose1d(in=C, out=C/2, kernel=k, stride=r, pad=(k-r)/2)
-//        + LeakyReLU + sum of resblocks(kernel, dilations)
-//   4. magnitude head: LeakyReLU + Conv1d(C_last -> n_fft/2+1)
-//   5. phase head:     LeakyReLU + Conv1d(C_last -> n_fft/2+1)
-//   6. ISTFT(mag * exp(i*phase))   -> audio
-//
-// A "resblock" here is HiFi-GAN's ResBlock1: three Conv1d(k, dilation=d)
-// pairs, LeakyReLU in between, wrapped with residuals. Kokoro uses three
-// parallel resblocks (kernel_sizes=[3, 7, 11]) at each upsample level and
-// sums their outputs (Multi-Receptive-Field, MRF).
+// ISTFTNet decoder for Kokoro. HiFi-GAN Multi-Receptive-Field generator
+// that emits magnitude + phase spectrograms, then ISTFTs to audio.
+// Ref: https://github.com/yl4579/StyleTTS2/blob/main/Modules/istftnet.py
 
 import { Tensor } from "../../frontend/tensor";
 import { Module } from "../../nn/module";
 import { Conv1d, ConvTranspose1d } from "../../nn/layers";
-import { AdainResBlk1d } from "./resblocks";
 import type { KokoroISTFTNetConfig } from "./config";
 import { istft, hannWindow } from "../../dsp";
 
@@ -74,14 +56,13 @@ export class MRF extends Module {
   }
 
   forward(x: Tensor): Tensor {
-    let acc: Tensor | null = null;
-    for (const rb of this.resblocks) {
-      const out = rb.forward(x);
-      acc = acc === null ? out : acc.add(out);
+    if (this.resblocks.length === 0) throw new Error("MRF: no resblocks");
+    let acc = this.resblocks[0].forward(x);
+    for (let i = 1; i < this.resblocks.length; i++) {
+      acc = acc.add(this.resblocks[i].forward(x));
     }
-    // Average of the branches (matches the reference).
     const inv = Tensor.fromData([1 / this.resblocks.length]);
-    return acc!.mul(inv);
+    return acc.mul(inv);
   }
 }
 

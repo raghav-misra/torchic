@@ -1,16 +1,9 @@
-// AdainResBlk1d: a Conv1d block with two AdaIN modulations. From StyleTTS 2
-// models.py; used inside ProsodyPredictor.F0 / ProsodyPredictor.N stacks and
-// (identically named) inside the ISTFTNet decoder.
+// AdainResBlk1d: Conv1d residual block modulated by AdaIN. Used by both
+// ProsodyPredictor's F0/N stacks and the ISTFTNet decoder.
+// Ref: https://github.com/yl4579/StyleTTS2/blob/main/models.py
 //
-// Reference:
-//   x -> AdaIN(norm1) -> LeakyReLU -> (optional pool/upsample) -> Conv1d(3)
-//     -> AdaIN(norm2) -> LeakyReLU -> Conv1d(3)      = residual branch
-//   shortcut = (optional upsample) -> (learned_sc ? Conv1d(1) : identity)
-//   out = (residual + shortcut) / sqrt(2)
-//
-// `upsample=true` inserts a Conv1d/ConvTranspose1d that doubles L. In the
-// PyTorch reference it's `ConvTranspose1d(k=3, s=2, groups=dim_in, p=1, op=1)`
-// applied to the input before conv1. We match that.
+// `upsample=true` inserts a grouped ConvTranspose1d(k=3, s=2) that doubles L.
+// nn.ConvTranspose1d doesn't have `groups` yet — pin down at demo review.
 
 import { Tensor } from "../../frontend/tensor";
 import { Module } from "../../nn/module";

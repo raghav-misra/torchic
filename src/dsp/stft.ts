@@ -1,12 +1,5 @@
 // STFT / ISTFT for Kokoro's ISTFT-based vocoder tail. Main-thread f32; no
-// backend involvement. Handles power-of-two FFT lengths; Kokoro configs
-// (e.g. n_fft=20, hop=5) round up internally to the next pow2.
-
-function nextPow2(n: number): number {
-  let p = 1;
-  while (p < n) p <<= 1;
-  return p;
-}
+// backend involvement. FFT length must be a power of two.
 
 function bitReverse(x: number, bits: number): number {
   let r = 0;

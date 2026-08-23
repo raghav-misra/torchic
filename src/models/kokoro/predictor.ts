@@ -1,21 +1,9 @@
-// ProsodyPredictor + DurationEncoder from StyleTTS 2. In Kokoro-82M:
-// style_dim=128, d_hid=hidden_dim=512, n_layer=3, max_dur=50.
+// ProsodyPredictor + DurationEncoder from StyleTTS 2. Kokoro-82M:
+// style_dim=128, d_hid=512, n_layer=3, max_dur=50.
+// Ref: https://github.com/yl4579/StyleTTS2/blob/main/models.py
 //
-// Reference (models.py):
-//   class DurationEncoder(nn.Module):
-//     self.lstms: alternating BiLSTM(d + sty, d/2) and AdaLayerNorm(sty, d)
-//   class ProsodyPredictor(nn.Module):
-//     self.text_encoder: DurationEncoder
-//     self.lstm: BiLSTM(d + sty, d/2)          # main duration LSTM
-//     self.duration_proj: Linear(d, max_dur)
-//     self.shared: BiLSTM(d + sty, d/2)        # feeds F0/N stacks
-//     self.F0: 3x AdainResBlk1d
-//     self.N: 3x AdainResBlk1d
-//     self.F0_proj: Conv1d(d/2, 1, 1)
-//     self.N_proj:  Conv1d(d/2, 1, 1)
-//
-// This module operates on masked padded sequences in the reference. For
-// serving we run at inference time on a single utterance without packing.
+// Reference implementation packs padded sequences for the LSTMs; at inference
+// we always have a single utterance so we skip the pack/pad dance.
 
 import { Tensor } from "../../frontend/tensor";
 import { Module } from "../../nn/module";

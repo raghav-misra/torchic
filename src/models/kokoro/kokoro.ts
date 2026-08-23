@@ -1,9 +1,6 @@
-// Kokoro top-level model. Wires the pieces from StyleTTS 2's build_model()
-// minus training-only components (diffusion, discriminators, aligner).
-//
-// forward() will need voice pack + phoneme indices + alignment matrix. For now
-// this class just constructs the module tree with the right shapes and enough
-// forward wiring to point at where the demo review needs to verify parity.
+// Kokoro top-level: bert + bert_encoder + text_encoder + predictor +
+// decoder from StyleTTS 2's build_model(), minus training-only pieces.
+// forward() is a placeholder — wired at demo review with real weights.
 
 import { Tensor } from "../../frontend/tensor";
 import { Module } from "../../nn/module";
@@ -47,33 +44,26 @@ export class Kokoro extends Module {
       "text_encoder",
       new TextEncoder(cfg.hidden_dim, cfg.text_encoder_kernel_size, cfg.n_layer, cfg.n_token),
     );
-    // decoder input channels = hidden_dim (from text_encoder), but the reference
-    // decoder concatenates additional info (F0, N, style) before the first conv.
-    // We match the reference's decoder input signature at demo-review time.
+    // Reference decoder concats (features, F0, N, style) before conv_pre; we
+    // wire the concat at demo review once we see the real input signature.
     this.decoder = this.child("decoder", new ISTFTGenerator(cfg.istftnet, cfg.hidden_dim));
   }
 
-  // Placeholder end-to-end wiring. Real inference (see demo review) will:
-  //  1. G2P: text -> phoneme indices
-  //  2. bert(phonemes) -> features [B, T, 768]
-  //  3. bert_encoder -> [B, T, 512]
-  //  4. text_encoder(phonemes) -> [B, T, 512]  (parallel path)
-  //  5. predictor.forward -> duration + d
-  //  6. duration -> alignment matrix
-  //  7. predictor.F0Nforward(d @ alignment, style) -> F0, N
-  //  8. decoder(en, F0, N, style) -> waveform
-  //
-  // The pieces are all here; the demo review is where we bolt them together
-  // against the real checkpoint.
+  // Demo-review placeholder. The full pipeline is:
+  //  1. text -> phoneme ids (G2P, main thread)
+  //  2. bert -> bert_encoder -> [B, T, 512] features
+  //  3. text_encoder -> parallel [B, T, 512] path
+  //  4. predictor.forward -> per-phoneme duration logits
+  //  5. durations -> alignment matrix (main thread)
+  //  6. predictor.F0Nforward(features @ alignment, style) -> F0, N
+  //  7. decoder(features, F0, N, style) -> audio
   forward(_phonemeIds: Tensor, _style: Tensor): never {
-    throw new Error(
-      "Kokoro.forward is a demo-review placeholder. Wire this up together with the actual weights and voice pack.",
-    );
+    throw new Error("Kokoro.forward not wired yet — pending demo review with real weights.");
   }
 }
 
-// Convenience: total param count. Handy at demo review to compare against
-// the 82M target and catch missing modules.
+// Total tensor element count across the state_dict. Sanity check for a
+// loaded checkpoint or an in-flight skeleton.
 export function countParameters(m: Module): number {
   const sd = m.state_dict();
   let total = 0;

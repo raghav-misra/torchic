@@ -256,9 +256,8 @@ export class Tensor {
     return new Tensor(id, shape, requiresGrad);
   }
 
-  // Concatenate tensors along `axis`. All non-axis dims must match. Inference-
-  // only for now (no autograd wiring). Materializes each input, then dispatches
-  // one CONCAT_SLAB per input into the appropriate slab of a fresh output.
+  // Concatenate tensors along `axis`. All non-axis dims must match.
+  // Inference-only: no autograd wiring on the output.
   static concat(tensors: Tensor[], axis: number): Tensor {
     if (tensors.length === 0) throw new Error(`concat: no tensors`);
     const first = tensors[0];
@@ -302,10 +301,8 @@ export class Tensor {
     return new Tensor(outId, outShape, false);
   }
 
-  // Constant padding on the last dim: prepend `left` copies of `value` and
-  // append `right` copies. Composed from Tensor.concat + a small filled tensor.
-  // For zero padding this is exact; other modes (reflect/replicate) can be
-  // added as their own kernels if profiling shows the compose is too slow.
+  // Constant padding on the last dim. Reflect/replicate modes will need
+  // their own kernels; concat + fill is only correct for a constant value.
   pad1d(left: number, right: number, value = 0): Tensor {
     if (left < 0 || right < 0) throw new Error(`pad1d: negative pad`);
     if (left === 0 && right === 0) return this;

@@ -1,17 +1,7 @@
-// PLBERT: Phoneme-Level BERT (ALBERT-style parameter sharing) used as the
-// text encoder feature extractor in Kokoro. Reference:
-//   https://github.com/yl4579/StyleTTS2/blob/main/Utils/PLBERT/util.py
-//
-// Kokoro-82M config:
-//   hidden_size=768, num_attention_heads=12, intermediate_size=2048,
-//   max_position_embeddings=512, num_hidden_layers=12, dropout=0.1
-//
-// ALBERT shares the transformer layer's weights across all N layers (they
-// call it one "layer group"). We follow that: one TransformerEncoderLayer,
-// applied num_hidden_layers times.
-//
-// The state_dict prefix in Kokoro is `bert.` for this whole module and
-// `bert_encoder.` for the Linear that projects into hidden_dim=512.
+// PLBERT: Phoneme-Level BERT text encoder used by Kokoro. Standard BERT
+// layout (per-layer transformer weights, not ALBERT sharing).
+// Kokoro-82M: 12 layers, hidden=768, heads=12, ff=2048, max_pos=512.
+// Ref: https://github.com/yl4579/StyleTTS2/blob/main/Utils/PLBERT/util.py
 
 import { Tensor } from "../../frontend/tensor";
 import { Module } from "../../nn/module";

@@ -1,18 +1,6 @@
-// TextEncoder from StyleTTS 2: phoneme embedding -> stack of (Conv1d,
-// LayerNorm, LeakyReLU, Dropout) blocks -> BiLSTM. In Kokoro-82M:
-// channels=hidden_dim=512, kernel_size=5, depth=n_layer=3, n_symbols=178.
-//
-// PyTorch reference:
-//   class TextEncoder(nn.Module):
-//     self.embedding = nn.Embedding(n_symbols, channels)
-//     self.cnn = ModuleList of Sequential(Conv1d(k=5, p=2), LayerNorm(chn),
-//                                         LeakyReLU(0.2), Dropout(0.2))
-//     self.lstm = LSTM(chn, chn//2, 1, batch_first=True, bidirectional=True)
-//
-// The LayerNorm in StyleTTS 2 operates channels-first via a transpose sandwich.
-// State_dict keys use the standard LSTM layout so BiLSTM's forward+bwd map to
-// {weight_ih_l0, weight_hh_l0, ...} and {weight_ih_l0_reverse, ...}.
-// (Our BiLSTM stores them under fwd./bwd. — see renameMap in kokoro.ts.)
+// TextEncoder from StyleTTS 2: phoneme embedding -> (Conv1d, LN,
+// LeakyReLU) x depth -> BiLSTM. Kokoro-82M: 512 channels, k=5, depth=3.
+// Ref: https://github.com/yl4579/StyleTTS2/blob/main/models.py
 
 import { Tensor } from "../../frontend/tensor";
 import { Module } from "../../nn/module";

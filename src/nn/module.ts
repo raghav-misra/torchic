@@ -101,9 +101,8 @@ export abstract class Module {
     }
   }
 
-  // Load a parsed safetensors map (see src/nn/safetensors.ts) into this module.
-  // Writes Float32Array data directly into destination tensors, skipping the
-  // Tensor allocation that `load_state_dict` would incur per parameter.
+  // Writes Float32Array data straight into destination tensors, skipping the
+  // intermediate Tensor allocation that load_state_dict does per parameter.
   load_safetensors(sd: SafetensorsMap, opts: { strict?: boolean; renameMap?: Record<string, string> } = {}): void {
     const strict = opts.strict ?? true;
     const rename = opts.renameMap;

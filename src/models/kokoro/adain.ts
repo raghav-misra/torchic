@@ -1,10 +1,6 @@
-// Style-modulated normalization from StyleTTS 2. Both variants project a
-// style vector `s: [B, style_dim]` through a Linear to (gamma, beta), then
-// apply `(1 + gamma) * norm(x) + beta` channel-wise.
-//
-// Reference: https://github.com/yl4579/StyleTTS2/blob/main/models.py
-//   class AdaIN1d(nn.Module):     # x: [B, C, L]
-//   class AdaLayerNorm(nn.Module): # x: [B, C, T]
+// Style-modulated normalization from StyleTTS 2: project style vector
+// through a Linear to (gamma, beta), apply (1 + gamma) * norm(x) + beta.
+// Ref: https://github.com/yl4579/StyleTTS2/blob/main/models.py
 
 import { Tensor } from "../../frontend/tensor";
 import { Module } from "../../nn/module";
@@ -31,9 +27,7 @@ export class AdaIN1d extends Module {
   }
 }
 
-// AdaLayerNorm normalizes over the channel dim (per-token layer norm), then
-// applies the style modulation. In StyleTTS 2 the input to forward() is
-// [B, T, C] (batch-first), and the output is [B, T, C].
+// LayerNorm-based counterpart to AdaIN1d. Operates on [B, T, C].
 export class AdaLayerNorm extends Module {
   fc: Linear;
   private channels: number;
@@ -49,7 +43,7 @@ export class AdaLayerNorm extends Module {
   // x: [B, T, C], style: [B, styleDim] -> [B, T, C]
   forward(x: Tensor, style: Tensor): Tensor {
     if (x.shape.length !== 3) throw new Error(`AdaLayerNorm expects [B, T, C], got ${x.shape}`);
-    const [B, T, C] = x.shape;
+    const [B, , C] = x.shape;
     if (C !== this.channels) throw new Error(`AdaLayerNorm: C=${C} != channels=${this.channels}`);
 
     // Layer-norm over the last (channel) axis.
@@ -65,6 +59,5 @@ export class AdaLayerNorm extends Module {
     const one = Tensor.fromData([1]);
     // Broadcast [B, 1, C] over T.
     return one.add(gamma).mul(normed).add(beta);
-    void T;
   }
 }
