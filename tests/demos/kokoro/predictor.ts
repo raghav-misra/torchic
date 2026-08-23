@@ -35,16 +35,22 @@ export class DurationEncoder extends Module {
   forward(x: Tensor, style: Tensor): Tensor {
     const [B, _C, T] = x.shape;
     const styleExpanded = this.expandStyle(style, B, T);
-    let h = x.transpose(1, 2);
-    h = Tensor.concat([h, styleExpanded], -1);
+    const xT = x.transpose(1, 2);
+    let h: Tensor = Tensor.concat([xT, styleExpanded], -1);
     for (const block of this.lstms) {
       if (block instanceof BiLSTM) {
-        h = (block as BiLSTM).forward(h);
+        const next = block.forward(h);
+        h.dispose();
+        h = next;
       } else {
-        h = (block as AdaLayerNorm).forward(h, style);
-        h = Tensor.concat([h, styleExpanded], -1);
+        const normed = (block as AdaLayerNorm).forward(h, style);
+        h.dispose();
+        const catted = Tensor.concat([normed, styleExpanded], -1);
+        normed.dispose();
+        h = catted;
       }
     }
+    styleExpanded.dispose();
     return h;
   }
 
@@ -106,20 +112,31 @@ export class ProsodyPredictor extends Module {
   // by the caller's alignment expansion), s: [B, styleDim].
   // Returns F0, N each of shape [B, L*upsampleFactor].
   F0Nforward(x: Tensor, s: Tensor): { F0: Tensor; N: Tensor } {
-    const sharedOut = this.shared.forward(x.transpose(1, 2));
+    const sharedIn = x.transpose(1, 2);
+    const sharedOut = this.shared.forward(sharedIn);
 
-    let F0 = sharedOut.transpose(1, 2);
-    for (const block of this.F0) F0 = block.forward(F0, s);
-    F0 = this.F0_proj.forward(F0);
+    let F0: Tensor = sharedOut.transpose(1, 2);
+    for (const block of this.F0) {
+      const next = block.forward(F0, s);
+      F0.dispose();
+      F0 = next;
+    }
+    const F0Proj = this.F0_proj.forward(F0);
+    F0.dispose();
 
-    let N = sharedOut.transpose(1, 2);
-    for (const block of this.N) N = block.forward(N, s);
-    N = this.N_proj.forward(N);
+    let N: Tensor = sharedOut.transpose(1, 2);
+    for (const block of this.N) {
+      const next = block.forward(N, s);
+      N.dispose();
+      N = next;
+    }
+    const NProj = this.N_proj.forward(N);
+    N.dispose();
+    sharedOut.dispose();
 
-    return {
-      F0: F0.reshape([F0.shape[0], F0.shape[2]]),
-      N: N.reshape([N.shape[0], N.shape[2]]),
-    };
+    const F0Out = F0Proj.reshape([F0Proj.shape[0], F0Proj.shape[2]]);
+    const NOut = NProj.reshape([NProj.shape[0], NProj.shape[2]]);
+    return { F0: F0Out, N: NOut };
   }
 
   private expandStyle(style: Tensor, B: number, T: number): Tensor {

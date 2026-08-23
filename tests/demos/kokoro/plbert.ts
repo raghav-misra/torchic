@@ -46,7 +46,17 @@ export class PLBERTEmbeddings extends Module {
     const word = this.word_embeddings.forward(inputIds);
     const pos = this.position_embeddings.forward(positions).reshape([1, T, this.embeddingSize]);
     const tt = this.token_type_embeddings.forward(tokenTypes).reshape([1, T, this.embeddingSize]);
-    return this.LayerNorm.forward(word.add(pos).add(tt));
+    positions.dispose();
+    tokenTypes.dispose();
+    const wordPos = word.add(pos);
+    word.dispose();
+    pos.dispose();
+    const summed = wordPos.add(tt);
+    wordPos.dispose();
+    tt.dispose();
+    const out = this.LayerNorm.forward(summed);
+    summed.dispose();
+    return out;
   }
 }
 
@@ -66,11 +76,19 @@ export class AlbertLayer extends Module {
     this.full_layer_layer_norm = this.child("full_layer_layer_norm", new LayerNorm(hiddenSize));
   }
 
-  // x: [B, T, H], attention_mask optional [B, T] with 1=keep 0=mask.
   forward(x: Tensor, attentionMask?: Tensor): Tensor {
     const attn = this.attention.forward(x, attentionMask);
-    const ffn = this.ffn_output.forward(this.ffn.forward(attn).gelu());
-    return this.full_layer_layer_norm.forward(attn.add(ffn));
+    const ffnIn = this.ffn.forward(attn);
+    const ffnAct = ffnIn.gelu();
+    ffnIn.dispose();
+    const ffn = this.ffn_output.forward(ffnAct);
+    ffnAct.dispose();
+    const summed = attn.add(ffn);
+    attn.dispose();
+    ffn.dispose();
+    const out = this.full_layer_layer_norm.forward(summed);
+    summed.dispose();
+    return out;
   }
 }
 
@@ -108,19 +126,48 @@ export class AlbertAttention extends Module {
     const dH = this.headDim;
     if (H !== this.hiddenSize) throw new Error(`AlbertAttention: got H=${H}, expected ${this.hiddenSize}`);
 
-    const splitHeads = (t: Tensor): Tensor =>
-      t.reshape([B, T, nH, dH]).transpose(1, 2).reshape([B * nH, T, dH]);
+    const splitHeads = (t: Tensor): Tensor => {
+      const r1 = t.reshape([B, T, nH, dH]);
+      const trans = r1.transpose(1, 2);
+      const r2 = trans.reshape([B * nH, T, dH]);
+      t.dispose();
+      return r2;
+    };
 
     const q = splitHeads(this.query.forward(x));
     const k = splitHeads(this.key.forward(x));
     const v = splitHeads(this.value.forward(x));
 
-    // Mask handling deferred: single-utterance inference has no padding.
-    const scores = q.bmm(k.transpose(-1, -2)).mul(this.scale);
-    const attn = scores.reshape([B * nH * T, T]).softmax(-1).reshape([B * nH, T, T]);
-    const context = attn.bmm(v).reshape([B, nH, T, dH]).transpose(1, 2).reshape([B, T, H]);
+    const kT = k.transpose(-1, -2);
+    const qk = q.bmm(kT);
+    q.dispose();
+    k.dispose();
+    const scores = qk.mul(this.scale);
+    qk.dispose();
 
-    return this.LayerNorm.forward(x.add(this.dense.forward(context)));
+    const scoresFlat = scores.reshape([B * nH * T, T]);
+    scores.dispose();
+    const softmaxed = scoresFlat.softmax(-1);
+    scoresFlat.dispose();
+    const attn = softmaxed.reshape([B * nH, T, T]);
+    softmaxed.dispose();
+
+    const av = attn.bmm(v);
+    attn.dispose();
+    v.dispose();
+    const avR = av.reshape([B, nH, T, dH]);
+    av.dispose();
+    const avT = avR.transpose(1, 2);
+    const context = avT.reshape([B, T, H]);
+    avR.dispose();
+
+    const projected = this.dense.forward(context);
+    context.dispose();
+    const summed = x.add(projected);
+    projected.dispose();
+    const out = this.LayerNorm.forward(summed);
+    summed.dispose();
+    return out;
   }
 }
 
@@ -164,7 +211,9 @@ export class AlbertTransformer extends Module {
   forward(x: Tensor, mask?: Tensor): Tensor {
     let h = this.embedding_hidden_mapping_in.forward(x);
     for (let i = 0; i < this.numLayers; i++) {
-      h = this.albert_layer_groups[0].forward(h, mask);
+      const next = this.albert_layer_groups[0].forward(h, mask);
+      h.dispose();
+      h = next;
     }
     return h;
   }
@@ -195,6 +244,8 @@ export class PLBERT extends Module {
   // input_ids: [B, T] -> last_hidden_state: [B, T, hidden_size]
   forward(inputIds: Tensor, attentionMask?: Tensor): Tensor {
     const embedded = this.embeddings.forward(inputIds);
-    return this.encoder.forward(embedded, attentionMask);
+    const out = this.encoder.forward(embedded, attentionMask);
+    embedded.dispose();
+    return out;
   }
 }
