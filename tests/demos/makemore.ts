@@ -1,4 +1,4 @@
-import { Tensor, trackTensors, crossEntropy, noGrad, init, shutdown } from "../../src/index";
+import { Tensor, trackTensors, crossEntropy, noGrad, init, shutdown, nn, optim } from "../../src/index";
 import { defineBench } from "../framework/define";
 import type { BenchMetrics, RunContext } from "../framework/types";
 
@@ -15,6 +15,27 @@ const INITIAL_LR = 0.1;
 const WARMUP_STEPS = 10;
 const MEASURED_STEPS = 300;
 const NUM_SAMPLES = 5;
+
+// Karpathy's makemore MLP: char embedding -> flatten -> tanh hidden -> logits.
+class MakemoreMLP extends nn.Module {
+  emb: nn.Embedding;
+  hidden: nn.Linear;
+  out: nn.Linear;
+
+  constructor(vocab: number, embDim: number, block: number, hidden: number) {
+    super();
+    this.emb = this.child("emb", new nn.Embedding(vocab, embDim));
+    this.hidden = this.child("hidden", new nn.Linear(block * embDim, hidden));
+    this.out = this.child("out", new nn.Linear(hidden, vocab));
+  }
+
+  forward(x: Tensor): Tensor {
+    const [B] = x.shape;
+    const e = this.emb.forward(x).reshape([B, -1]);
+    const h = this.hidden.forward(e).tanh();
+    return this.out.forward(h);
+  }
+}
 
 function percentile(sorted: number[], p: number): number {
   if (sorted.length === 0) return NaN;
@@ -112,21 +133,8 @@ export async function runMakemore(
   await init({ backend, threadCount: threads, memorySizeMB: estimatedMB });
 
   try {
-    const Wembed = Tensor.randn([vocabSize, EMBEDDING_DIMS], true);
-    const Whidden = Tensor.randn([BLOCK_SIZE * EMBEDDING_DIMS, HIDDEN_SIZE], true);
-    const bhidden = Tensor.zeros([1, HIDDEN_SIZE], true);
-    const Wout = Tensor.randn([HIDDEN_SIZE, vocabSize], true);
-    const bout = Tensor.zeros([1, vocabSize], true);
-    const parameters = [Wembed, Whidden, bhidden, Wout, bout];
-    const learningRate = Tensor.fromData([INITIAL_LR]);
-
-    // Small init keeps tanh out of saturation.
-    await noGrad(async () => {
-      const initScale = Tensor.fromData([0.01]);
-      Wembed.mul_(initScale);
-      Whidden.mul_(initScale);
-      Wout.mul_(initScale);
-    });
+    const model = new MakemoreMLP(vocabSize, EMBEDDING_DIMS, BLOCK_SIZE, HIDDEN_SIZE);
+    const opt = new optim.SGD(model.parameters(), INITIAL_LR);
 
     const Xbuf = Tensor.empty([BATCH_SIZE, BLOCK_SIZE]);
     const Ybuf = Tensor.empty([BATCH_SIZE]);
@@ -162,19 +170,10 @@ export async function runMakemore(
 
       const t0 = performance.now();
       lastLoss = await trackTensors(async () => {
-        for (const p of parameters) p.grad = null;
-
-        const emb = Wembed.embedding(Xbuf);
-        const embFlat = emb.reshape([BATCH_SIZE, BLOCK_SIZE * EMBEDDING_DIMS]);
-        const hidden = embFlat.matmul(Whidden).add(bhidden).tanh();
-        const logits = hidden.matmul(Wout).add(bout);
-        const loss = crossEntropy(logits, Ybuf);
-
+        opt.zeroGrad();
+        const loss = crossEntropy(model.forward(Xbuf), Ybuf);
         loss.backward();
-        await noGrad(async () => {
-          for (const p of parameters) p.sub_(p.grad!.mul(learningRate));
-        });
-
+        await opt.step();
         return await loss.item();
       });
       const dt = performance.now() - t0;
@@ -205,10 +204,7 @@ export async function runMakemore(
         while (generated.length < 20) {
           const probs: Float32Array = await trackTensors(async () => {
             const Xctx = Tensor.fromData([context.map((c) => stoi[c])]);
-            const emb = Wembed.embedding(Xctx);
-            const embFlat = emb.reshape([1, BLOCK_SIZE * EMBEDDING_DIMS]);
-            const hidden = embFlat.matmul(Whidden).add(bhidden).tanh();
-            const logits = hidden.matmul(Wout).add(bout);
+            const logits = model.forward(Xctx);
             return await logits.softmax(-1).toArray();
           });
           const ix = sampleFromProbArray(probs);
@@ -244,7 +240,7 @@ defineBench<Backend>({
   paramName: "backend",
   params: ["workers", "wasm", "webgpu"],
   description:
-    "Karpathy's char-level MLP (27-token vocab, 3-char context, 10-D embedding, 200-unit hidden). Discards the first 10 warmup steps, then times 300 SGD training steps at batch 256 on the chosen backend. Reports per-step latency (mean/median/p95), throughput (steps/s, samples/s), and total training wall time. Fetch, dataset build, model init, and sampling are logged but excluded from the reported latency.",
+    "Karpathy's char-level MLP built with `nn.Module` + `optim.SGD` (27-token vocab, 3-char context, 10-D embedding, 200-unit hidden). Discards the first 10 warmup steps, then times 300 SGD training steps at batch 256 on the chosen backend. Reports per-step latency (mean/median/p95), throughput (steps/s, samples/s), and total training wall time. Fetch, dataset build, model init, and sampling are logged but excluded from the reported latency.",
   highlight: ["median ms/step", "samples/s"],
   runner: runMakemore,
 });

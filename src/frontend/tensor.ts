@@ -400,18 +400,32 @@ export class Tensor {
   }
 
   reshape(newShape: number[]): Tensor {
-    const newSize = newShape.reduce((a, b) => a * b, 1);
-    if (newSize !== this.numElements()) {
-      throw new Error(
-        `Reshape size mismatch: ${this.shape} (${this.numElements()}) vs ${newShape} (${newSize})`,
-      );
+    const total = this.numElements();
+    let unknown = -1;
+    let known = 1;
+    for (let i = 0; i < newShape.length; i++) {
+      if (newShape[i] === -1) {
+        if (unknown !== -1) throw new Error(`Reshape supports at most one -1: ${newShape}`);
+        unknown = i;
+      } else {
+        known *= newShape[i];
+      }
+    }
+    const resolved = newShape.slice();
+    if (unknown !== -1) {
+      if (known === 0 || total % known !== 0) {
+        throw new Error(`Reshape ${this.shape} to ${newShape}: not divisible by ${known}`);
+      }
+      resolved[unknown] = total / known;
+    } else if (known !== total) {
+      throw new Error(`Reshape size mismatch: ${this.shape} (${total}) vs ${newShape} (${known})`);
     }
 
     const viewId = getDispatcher().nextTensorId();
     getDispatcher().allocateView(viewId, this.id);
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
-    const out = new Tensor(viewId, newShape, shouldGrad, this.offset);
+    const out = new Tensor(viewId, resolved, shouldGrad, this.offset);
     if (shouldGrad) {
       out.op = "RESHAPE";
       out.prev = [this];

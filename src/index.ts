@@ -14,3 +14,5 @@ const torchic = {
 export default torchic;
 
 export { Tensor, noGrad, trackTensors, oneHot, oneHotBatch, crossEntropy, init, shutdown };
+export * as nn from "./nn";
+export * as optim from "./optim";
