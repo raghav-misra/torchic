@@ -12,6 +12,8 @@ export {
   Conv1d,
   ConvTranspose1d,
   LSTMCell,
+  BiLSTM,
+  lstmForward,
   sinusoidalPositionalEncoding,
 } from "./layers";
 export { scaledRandn, kaimingStd } from "./init";

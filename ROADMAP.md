@@ -48,6 +48,14 @@ Building blocks that already work in the library:
 - [x] `Tensor.reshape([-1])` auto-materializes non-contiguous inputs
 - [x] Headless bench harness (vite + puppeteer) so all this can be exercised
       from CLI without opening a browser tab
+- [x] `nn.BiLSTM` on top of `LSTMCell` (concat over 2*hidden output dim)
+- [x] `Tensor.concat(tensors, axis)`, `Tensor.split(sections, axis)`,
+      `Tensor.pad1d(left, right, value)` — Concat kernel on all three backends
+- [x] Kokoro model skeleton in `src/models/kokoro/`: `AdaIN1d`,
+      `AdaLayerNorm`, `AdainResBlk1d`, `TextEncoder`, `DurationEncoder`,
+      `ProsodyPredictor`, `ResBlock1`, `MRF`, `ISTFTGenerator`, `PLBERT`,
+      `Kokoro`. ~105M params, right order of magnitude; exact name/shape
+      alignment with the real state_dict happens at demo review.
 
 ## Gap analysis
 
@@ -121,29 +129,32 @@ style vector. What torchic is still missing:
 Each milestone should land a demo in `tests/demos/` that the headless bench
 harness (see `scripts/bench.mjs`) can run.
 
-1. **M1 — LayerNorm + GELU + a working MLP transformer block.**
-   Enough to build a `nn.MultiHeadAttention` and a `nn.TransformerEncoderLayer`
-   from primitives. Demo: BERT-tiny-style masked-LM overfit on a tiny corpus.
+1. **M1 — LayerNorm + GELU + a working MLP transformer block.** ✅ Done —
+   `nn.MultiHeadAttention`, `nn.TransformerEncoderLayer`, positional
+   encoding, all activations on all three backends.
 
-2. **M2 — Safetensors loader + BF16 upcast.**
-   Load any HF `.safetensors` file into a matching `Module` tree.
-   Demo: load a small pre-trained model (e.g. `bert-tiny`) and verify a
-   forward pass matches HF within tolerance.
+2. **M2 — Safetensors loader + BF16 upcast.** ✅ Done for the loader,
+   writer, and Module integration. `Module.load_safetensors(map,
+   {strict, renameMap})` is verified via round-trip on all three
+   backends. M2b (numerical parity against a real HF checkpoint) will
+   fall out of the Kokoro demo review.
 
-3. **M3 — Conv1D + LSTM.**
-   Get the two big Kokoro-specific ops on Workers first, then WASM, then
-   WebGPU. Demo: WaveNet-lite text-to-audio-envelope overfit.
+3. **M3 — Conv1D + LSTM.** ✅ Done for Conv1d/ConvTranspose1d (all three
+   backends), LSTMCell + BiLSTM. Kokoro-specific extras (grouped conv,
+   weight_norm's g/v layout) will be added in the demo-review pass.
 
-4. **M4 — ISTFT.**
-   Start with a CPU (main-thread) implementation using FFT.
-   Demo: mel-spectrogram → PCM round-trip.
+4. **M4 — ISTFT.** ✅ Done as main-thread CPU DSP in `src/dsp/`.
+   Kokoro's `gen_istft_n_fft=20, hop=5` config is trivial for this
+   implementation.
 
 5. **M5 — Kokoro forward pass (weights loaded, one voice, unbatched).**
-   Not yet performant. Just prove numerics match the reference within
-   audible tolerance.
+   ⏸ At the STOP point. The full module tree is in `src/models/kokoro/`
+   with param count ~105M (target 82M — the demo review will shave the
+   over-count by aligning names/shapes with the real checkpoint's
+   state_dict). Not yet wired to real weights per user instruction.
 
-6. **M6 — Streaming synthesis via AudioWorklet.**
-   Chunked decode + PCM handoff. Report RTF from the bench harness.
+6. **M6 — Streaming synthesis via AudioWorklet.** Chunked decode + PCM
+   handoff. Report RTF from the bench harness.
 
 7. **M7 — WebGPU fused kernels.** Attention + Conv1D speedups. RTF < 1.0.
 

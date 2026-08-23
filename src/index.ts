@@ -17,3 +17,4 @@ export { Tensor, noGrad, trackTensors, oneHot, oneHotBatch, crossEntropy, init, 
 export * as nn from "./nn";
 export * as optim from "./optim";
 export * as dsp from "./dsp";
+export * as models from "./models/kokoro";

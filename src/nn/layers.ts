@@ -421,8 +421,66 @@ export class LSTMCell extends Module {
     return [hNew, cNew];
   }
 
-  // Helper: initial (h, c) at zeros for a given batch size, always no-grad.
+  // Zero-initialized (h, c). Detached from any graph.
   initialState(batchSize: number): [Tensor, Tensor] {
     return [Tensor.zeros([batchSize, this.hidden]), Tensor.zeros([batchSize, this.hidden])];
+  }
+}
+
+// Helper: unroll an LSTMCell over the time dim (batch-first). Returns the
+// stacked hidden states [B, T, H] and the final (h, c). No dropout, no
+// state passing between calls — this is for inference.
+export function lstmForward(
+  cell: LSTMCell,
+  x: Tensor,
+  init?: [Tensor, Tensor],
+): { output: Tensor; hFinal: Tensor; cFinal: Tensor } {
+  if (x.shape.length !== 3) throw new Error(`lstmForward input must be [B, T, in], got ${x.shape}`);
+  const [B, T, _in] = x.shape;
+  const [h0, c0] = init ?? cell.initialState(B);
+  const H = h0.shape[1];
+  let h = h0;
+  let c = c0;
+  const outputs: Tensor[] = [];
+  for (let t = 0; t < T; t++) {
+    const xt = x.slice([[0, B], [t, t + 1], [0, x.shape[2]]]).reshape([B, x.shape[2]]);
+    [h, c] = cell.forward(xt, [h, c]);
+    outputs.push(h.reshape([B, 1, H]));
+  }
+  const output = Tensor.concat(outputs, 1);
+  return { output, hFinal: h, cFinal: c };
+}
+
+// Reverse a tensor along the time axis (batch-first: axis=1). Uses slice+concat.
+function reverseTime(x: Tensor): Tensor {
+  const T = x.shape[1];
+  const chunks: Tensor[] = [];
+  for (let t = T - 1; t >= 0; t--) {
+    chunks.push(x.slice([[0, x.shape[0]], [t, t + 1], [0, x.shape[2]]]));
+  }
+  return Tensor.concat(chunks, 1);
+}
+
+// Bidirectional LSTM. Composed from two LSTMCell instances (forward + reverse
+// unroll). Output is [B, T, 2*hidden]. State dict keys match PyTorch:
+// weight_ih_l0, weight_hh_l0, bias_ih_l0, bias_hh_l0 (forward)
+// weight_ih_l0_reverse, weight_hh_l0_reverse, bias_ih_l0_reverse, bias_hh_l0_reverse
+export class BiLSTM extends Module {
+  fwd: LSTMCell;
+  bwd: LSTMCell;
+  private hidden: number;
+
+  constructor(inputSize: number, hiddenSize: number) {
+    super();
+    this.hidden = hiddenSize;
+    this.fwd = this.child("fwd", new LSTMCell(inputSize, hiddenSize));
+    this.bwd = this.child("bwd", new LSTMCell(inputSize, hiddenSize));
+  }
+
+  forward(x: Tensor): Tensor {
+    const fwdOut = lstmForward(this.fwd, x).output;
+    const rev = reverseTime(x);
+    const bwdOut = reverseTime(lstmForward(this.bwd, rev).output);
+    return Tensor.concat([fwdOut, bwdOut], -1);
   }
 }

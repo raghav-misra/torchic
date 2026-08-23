@@ -8,6 +8,7 @@ import "./suites/conv1d";
 import "./suites/lstm";
 import "./suites/shape-ops";
 import "./suites/safetensors";
+import "./suites/kokoro-skeleton";
 import "./demos/makemore";
 import "./console";
 import { mount } from "./framework/render";
