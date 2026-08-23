@@ -435,6 +435,37 @@ export class ConvTranspose1d extends Module {
   }
 }
 
+// One LSTM step given raw tensor refs. Extracted so BiLSTM can borrow its
+// tensors under PyTorch-native names (weight_ih_l0, ...) without pulling in
+// LSTMCell as a child (which would double-register the params).
+function lstmStep(
+  x: Tensor,
+  h: Tensor,
+  c: Tensor,
+  weight_ih: Tensor,
+  weight_hh: Tensor,
+  bias_ih: Tensor,
+  bias_hh: Tensor,
+  hidden: number,
+): [Tensor, Tensor] {
+  const B = x.shape[0];
+  const H = hidden;
+  const gates = x
+    .matmul(weight_ih.transpose())
+    .add(bias_ih)
+    .add(h.matmul(weight_hh.transpose()))
+    .add(bias_hh);
+
+  const iGate = gates.slice([[0, B], [0, H]]).sigmoid();
+  const fGate = gates.slice([[0, B], [H, 2 * H]]).sigmoid();
+  const gCand = gates.slice([[0, B], [2 * H, 3 * H]]).tanh();
+  const oGate = gates.slice([[0, B], [3 * H, 4 * H]]).sigmoid();
+
+  const cNew = fGate.mul(c).add(iGate.mul(gCand));
+  const hNew = oGate.mul(cNew.tanh());
+  return [hNew, cNew];
+}
+
 // Standard PyTorch-layout LSTM cell. weight_ih is [4*hidden, input] (concat of
 // i,f,g,o gate weights along output dim). Compatible with HuggingFace/PyTorch
 // safetensors naming so a Kokoro state_dict loads with no key remap.
@@ -448,8 +479,6 @@ export class LSTMCell extends Module {
   constructor(inputSize: number, hiddenSize: number) {
     super();
     this.hidden = hiddenSize;
-    // PyTorch default: uniform in [-1/sqrt(H), 1/sqrt(H)] — we approximate with
-    // the same stddev via normal init.
     const k = 1 / Math.sqrt(hiddenSize);
     this.weight_ih = this.param("weight_ih", scaledRandn([4 * hiddenSize, inputSize], k));
     this.weight_hh = this.param("weight_hh", scaledRandn([4 * hiddenSize, hiddenSize], k));
@@ -457,30 +486,12 @@ export class LSTMCell extends Module {
     this.bias_hh = this.param("bias_hh", Tensor.zeros([4 * hiddenSize], true));
   }
 
-  // x: [B, input_size], (h, c): each [B, hidden_size] -> new (h, c) each [B, hidden_size]
   forward(x: Tensor, state: [Tensor, Tensor]): [Tensor, Tensor] {
-    const [h, c] = state;
     if (x.shape.length !== 2) throw new Error(`LSTMCell input must be [B, in], got ${x.shape}`);
-    const B = x.shape[0];
-    const H = this.hidden;
-
-    const gates = x
-      .matmul(this.weight_ih.transpose())
-      .add(this.bias_ih)
-      .add(h.matmul(this.weight_hh.transpose()))
-      .add(this.bias_hh);
-
-    const iGate = gates.slice([[0, B], [0, H]]).sigmoid();
-    const fGate = gates.slice([[0, B], [H, 2 * H]]).sigmoid();
-    const gCand = gates.slice([[0, B], [2 * H, 3 * H]]).tanh();
-    const oGate = gates.slice([[0, B], [3 * H, 4 * H]]).sigmoid();
-
-    const cNew = fGate.mul(c).add(iGate.mul(gCand));
-    const hNew = oGate.mul(cNew.tanh());
-    return [hNew, cNew];
+    const [h, c] = state;
+    return lstmStep(x, h, c, this.weight_ih, this.weight_hh, this.bias_ih, this.bias_hh, this.hidden);
   }
 
-  // Zero-initialized (h, c). Detached from any graph.
   initialState(batchSize: number): [Tensor, Tensor] {
     return [Tensor.zeros([batchSize, this.hidden]), Tensor.zeros([batchSize, this.hidden])];
   }
@@ -520,26 +531,61 @@ function reverseTime(x: Tensor): Tensor {
   return Tensor.concat(chunks, 1);
 }
 
-// Bidirectional LSTM. Composed from two LSTMCell instances (forward + reverse
-// unroll). Output is [B, T, 2*hidden]. State dict keys match PyTorch:
-// weight_ih_l0, weight_hh_l0, bias_ih_l0, bias_hh_l0 (forward)
-// weight_ih_l0_reverse, weight_hh_l0_reverse, bias_ih_l0_reverse, bias_hh_l0_reverse
+// Bidirectional LSTM with PyTorch-native state_dict names:
+//   weight_ih_l0, weight_hh_l0, bias_ih_l0, bias_hh_l0             (forward)
+//   weight_ih_l0_reverse, weight_hh_l0_reverse, bias_..._reverse   (reverse)
+// Output is [B, T, 2*hidden] (concat of forward + reversed backward).
 export class BiLSTM extends Module {
-  fwd: LSTMCell;
-  bwd: LSTMCell;
+  weight_ih_l0: Tensor;
+  weight_hh_l0: Tensor;
+  bias_ih_l0: Tensor;
+  bias_hh_l0: Tensor;
+  weight_ih_l0_reverse: Tensor;
+  weight_hh_l0_reverse: Tensor;
+  bias_ih_l0_reverse: Tensor;
+  bias_hh_l0_reverse: Tensor;
   private hidden: number;
 
   constructor(inputSize: number, hiddenSize: number) {
     super();
     this.hidden = hiddenSize;
-    this.fwd = this.child("fwd", new LSTMCell(inputSize, hiddenSize));
-    this.bwd = this.child("bwd", new LSTMCell(inputSize, hiddenSize));
+    const k = 1 / Math.sqrt(hiddenSize);
+    const w_ih = () => scaledRandn([4 * hiddenSize, inputSize], k);
+    const w_hh = () => scaledRandn([4 * hiddenSize, hiddenSize], k);
+    const b = () => Tensor.zeros([4 * hiddenSize], true);
+    this.weight_ih_l0 = this.param("weight_ih_l0", w_ih());
+    this.weight_hh_l0 = this.param("weight_hh_l0", w_hh());
+    this.bias_ih_l0 = this.param("bias_ih_l0", b());
+    this.bias_hh_l0 = this.param("bias_hh_l0", b());
+    this.weight_ih_l0_reverse = this.param("weight_ih_l0_reverse", w_ih());
+    this.weight_hh_l0_reverse = this.param("weight_hh_l0_reverse", w_hh());
+    this.bias_ih_l0_reverse = this.param("bias_ih_l0_reverse", b());
+    this.bias_hh_l0_reverse = this.param("bias_hh_l0_reverse", b());
+  }
+
+  private runDirection(x: Tensor, dir: "fwd" | "rev"): Tensor {
+    const [B, T, in_] = x.shape;
+    const H = this.hidden;
+    const wIH = dir === "fwd" ? this.weight_ih_l0 : this.weight_ih_l0_reverse;
+    const wHH = dir === "fwd" ? this.weight_hh_l0 : this.weight_hh_l0_reverse;
+    const bIH = dir === "fwd" ? this.bias_ih_l0 : this.bias_ih_l0_reverse;
+    const bHH = dir === "fwd" ? this.bias_hh_l0 : this.bias_hh_l0_reverse;
+    let h = Tensor.zeros([B, H]);
+    let c = Tensor.zeros([B, H]);
+    const outputs: Tensor[] = [];
+    for (let t = 0; t < T; t++) {
+      const xt = x.slice([[0, B], [t, t + 1], [0, in_]]).reshape([B, in_]);
+      [h, c] = lstmStep(xt, h, c, wIH, wHH, bIH, bHH, H);
+      outputs.push(h.reshape([B, 1, H]));
+    }
+    return Tensor.concat(outputs, 1);
   }
 
   forward(x: Tensor): Tensor {
-    const fwdOut = lstmForward(this.fwd, x).output;
+    if (x.shape.length !== 3) throw new Error(`BiLSTM input must be [B, T, in], got ${x.shape}`);
+    const fwdOut = this.runDirection(x, "fwd");
     const rev = reverseTime(x);
-    const bwdOut = reverseTime(lstmForward(this.bwd, rev).output);
+    const bwdOut = reverseTime(this.runDirection(rev, "rev"));
     return Tensor.concat([fwdOut, bwdOut], -1);
   }
 }

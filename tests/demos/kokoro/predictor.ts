@@ -7,7 +7,7 @@
 
 import { Tensor } from "../../../src/frontend/tensor";
 import { Module } from "../../../src/nn/module";
-import { BiLSTM, Linear, Conv1d } from "../../../src/nn/layers";
+import { BiLSTM, Linear, LinearNorm, Conv1d } from "../../../src/nn/layers";
 import { AdaLayerNorm } from "./adain";
 import { AdainResBlk1d } from "./resblocks";
 
@@ -60,7 +60,7 @@ export class DurationEncoder extends Module {
 export class ProsodyPredictor extends Module {
   text_encoder: DurationEncoder;
   lstm: BiLSTM;
-  duration_proj: Linear;
+  duration_proj: LinearNorm;
   shared: BiLSTM;
   F0: AdainResBlk1d[];
   N: AdainResBlk1d[];
@@ -71,7 +71,7 @@ export class ProsodyPredictor extends Module {
     super();
     this.text_encoder = this.child("text_encoder", new DurationEncoder(styleDim, dHid, nLayers));
     this.lstm = this.child("lstm", new BiLSTM(dHid + styleDim, dHid / 2));
-    this.duration_proj = this.child("duration_proj", new Linear(dHid, maxDur));
+    this.duration_proj = this.child("duration_proj", new LinearNorm(dHid, maxDur));
     this.shared = this.child("shared", new BiLSTM(dHid + styleDim, dHid / 2));
     const F0: AdainResBlk1d[] = [
       new AdainResBlk1d(dHid, dHid, styleDim),
