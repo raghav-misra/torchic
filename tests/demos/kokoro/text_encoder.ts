@@ -74,10 +74,11 @@ export class TextEncoder extends Module {
     this.lstm = this.child("lstm", new BiLSTM(channels, channels / 2));
   }
 
-  // x: [B, T] phoneme indices -> [B, T, channels]
+  // x: [B, T] phoneme indices -> [B, channels, T]
   forward(x: Tensor): Tensor {
     let h = this.embedding.forward(x).transpose(1, 2);
     for (const b of this.cnn) h = b.forward(h);
-    return this.lstm.forward(h.transpose(1, 2));
+    const lstmOut = this.lstm.forward(h.transpose(1, 2));
+    return lstmOut.transpose(1, 2);
   }
 }

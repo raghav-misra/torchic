@@ -7,7 +7,7 @@
 
 import { Tensor } from "../../../src/frontend/tensor";
 import { Module } from "../../../src/nn/module";
-import { BiLSTM, Linear, LinearNorm, Conv1d } from "../../../src/nn/layers";
+import { BiLSTM, LinearNorm, Conv1d } from "../../../src/nn/layers";
 import { AdaLayerNorm } from "./adain";
 import { AdainResBlk1d } from "./resblocks";
 
@@ -28,21 +28,21 @@ export class DurationEncoder extends Module {
     this.lstms = this.childList("lstms", items);
   }
 
-  // x: [B, dModel, T], style: [B, styleDim] -> [B, T, dModel]
+  // x: [B, dModel, T], style: [B, styleDim] -> [B, T, dModel + styleDim]
+  // Style is concatenated once up front and re-concatenated after each
+  // AdaLayerNorm block, so the final output carries style channels — matches
+  // the reference's return format where predictor.lstm sees a 640-dim input.
   forward(x: Tensor, style: Tensor): Tensor {
-    // Broadcast style over T and concat channelwise before each BiLSTM.
-    // Reference implementation packs/pads for the LSTM; we run at length T
-    // directly (single-utterance inference).
     const [B, _C, T] = x.shape;
-    let h = x.transpose(1, 2); // [B, T, C]
-    const styleExpanded = this.expandStyle(style, B, T); // [B, T, styleDim]
+    const styleExpanded = this.expandStyle(style, B, T);
+    let h = x.transpose(1, 2);
+    h = Tensor.concat([h, styleExpanded], -1);
     for (const block of this.lstms) {
       if (block instanceof BiLSTM) {
-        const cat = Tensor.concat([h, styleExpanded], -1);
-        h = (block as BiLSTM).forward(cat);
+        h = (block as BiLSTM).forward(h);
       } else {
-        // AdaLayerNorm expects [B, T, C].
         h = (block as AdaLayerNorm).forward(h, style);
+        h = Tensor.concat([h, styleExpanded], -1);
       }
     }
     return h;
@@ -90,30 +90,23 @@ export class ProsodyPredictor extends Module {
   }
 
   // Predict per-phoneme duration + an "encoded" tensor for F0/N.
-  // texts: [B, dModel, T] (already text-encoded and style-catted)
+  // texts: [B, dModel, T] (already text-encoded)
   // style: [B, styleDim]
   // Returns:
-  //   duration: [B, T, maxDur]  (log-duration logits; caller argmax + sum)
-  //   d: [B, dModel, T]         (for F0/N branch input)
+  //   duration: [B, T, maxDur]
+  //   d: [B, dModel + styleDim, T]  (for F0/N branch input after alignment expansion)
   forward(texts: Tensor, style: Tensor): { duration: Tensor; d: Tensor } {
-    const d = this.text_encoder.forward(texts, style); // [B, T, dModel]
-    // Concat style so LSTM input matches training layout.
-    const [B, T, _dModel] = d.shape;
-    const styleExpanded = this.expandStyle(style, B, T);
-    const cat = Tensor.concat([d, styleExpanded], -1);
-    const lstmOut = this.lstm.forward(cat); // [B, T, dModel]
+    const d = this.text_encoder.forward(texts, style);
+    const lstmOut = this.lstm.forward(d);
     const duration = this.duration_proj.forward(lstmOut);
-    // Return d in [B, dModel, T] for the F0/N stacks.
     return { duration, d: d.transpose(1, 2) };
   }
 
-  // F0Ntrain from the reference — runs the shared BiLSTM + F0/N stacks.
-  // x: [B, dModel, T'], s: [B, styleDim] -> ([B, T''], [B, T''])
+  // F0Ntrain from the reference. x: [B, dHid + styleDim, L] (style baked in
+  // by the caller's alignment expansion), s: [B, styleDim].
+  // Returns F0, N each of shape [B, L*upsampleFactor].
   F0Nforward(x: Tensor, s: Tensor): { F0: Tensor; N: Tensor } {
-    // shared LSTM operates on [B, T, dModel], so transpose in.
-    const inp = x.transpose(1, 2); // [B, T, dModel]
-    const styleExpanded = this.expandStyle(s, inp.shape[0], inp.shape[1]);
-    const sharedOut = this.shared.forward(Tensor.concat([inp, styleExpanded], -1)); // [B, T, dModel]
+    const sharedOut = this.shared.forward(x.transpose(1, 2));
 
     let F0 = sharedOut.transpose(1, 2);
     for (const block of this.F0) F0 = block.forward(F0, s);
@@ -123,7 +116,6 @@ export class ProsodyPredictor extends Module {
     for (const block of this.N) N = block.forward(N, s);
     N = this.N_proj.forward(N);
 
-    // Squeeze the singleton channel out.
     return {
       F0: F0.reshape([F0.shape[0], F0.shape[2]]),
       N: N.reshape([N.shape[0], N.shape[2]]),
