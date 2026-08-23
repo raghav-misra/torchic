@@ -13,6 +13,16 @@ import { AdainResBlk1d } from "./resblocks";
 const LEAKY_SLOPE = 0.1;
 const SAMPLE_RATE = 24000;
 
+// Standard-normal sample via Box-Muller. Reference SineGen / SourceModuleHnNSF
+// use torch.randn_like for their noise terms; a uniform in [-1, 1] has the
+// wrong spectrum and audibly changes the noise floor.
+function randn(): number {
+  let u = 0;
+  while (u === 0) u = Math.random();
+  const v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
 function getPadding(kernelSize: number, dilation: number): number {
   return Math.floor(((kernelSize - 1) * dilation) / 2);
 }
@@ -165,7 +175,7 @@ export class SineGen {
         const noiseAmp = uvl * this.noiseStd + (1 - uvl) * (this.sineAmp / 3);
         for (let h = 0; h < dim; h++) {
           const i = b * L * dim + l * dim + h;
-          sines[i] = sines[i] * uvl + noiseAmp * (Math.random() * 2 - 1);
+          sines[i] = sines[i] * uvl + noiseAmp * randn();
         }
       }
     }
@@ -207,7 +217,7 @@ export class SourceModuleHnNSF extends Module {
     const uvT = Tensor.fromData(Array.from(uv), [B, L, 1]);
     const noiseData = new Float32Array(B * L);
     for (let i = 0; i < noiseData.length; i++) {
-      noiseData[i] = (Math.random() * 2 - 1) * (this.sineAmp / 3);
+      noiseData[i] = randn() * (this.sineAmp / 3);
     }
     const noise = Tensor.fromData(Array.from(noiseData), [B, L, 1]);
     return { sineMerge, noise, uv: uvT };
@@ -398,7 +408,9 @@ export class Generator extends Module {
       xs!.dispose();
       inv.dispose();
     }
-    const hFinal = h.leaky_relu(LEAKY_SLOPE);
+    // Reference uses F.leaky_relu(x) — DEFAULT slope 0.01 — for this final
+    // activation, not the 0.1 used inside the upsample loop.
+    const hFinal = h.leaky_relu(0.01);
     h.dispose();
     h = this.conv_post.forward(hFinal);
     hFinal.dispose();
