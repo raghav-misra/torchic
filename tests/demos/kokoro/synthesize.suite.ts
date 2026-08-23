@@ -6,13 +6,53 @@ import { Kokoro } from "./index";
 const SAMPLE_RATE = 24000;
 
 // Predefined phoneme sequences with wrapping zero tokens.
-// IDs are pulled from KOKORO_CONFIG.vocab (see kokoro/config.json).
-const SAMPLES = {
+// IDs are pulled from KOKORO_CONFIG.vocab (see kokoro/config.json). Phonemes
+// hand-transcribed against the vocab; the eventual G2P would produce these
+// programmatically from text input.
+interface Sample { label: string; ids: number[] }
+const SAMPLES: Record<string, Sample> = {
   hello_world: {
-    label: "hˈɛloʊ wˈɜɹld",
+    // "Hello world." -> hˈɛloʊ wˈɜɹld
+    label: "Hello world.",
     ids: [0, 50, 156, 86, 54, 57, 135, 16, 65, 156, 87, 123, 54, 46, 0],
   },
-} as const;
+  pangram: {
+    // "The quick brown fox jumps over the lazy dog."
+    // ðə kwˈɪk bɹˈaʊn fˈɑks ʤˈʌmps ˈoʊvɚ ðə lˈeɪzi dˈɔɡ
+    label: "The quick brown fox jumps over the lazy dog.",
+    ids: [
+      0,
+      81, 83, 16,           // ðə (the)
+      53, 65, 156, 102, 53, 16,   // kwˈɪk (quick)
+      44, 123, 156, 43, 135, 56, 16, // bɹˈaʊn (brown)
+      48, 156, 69, 53, 61, 16,     // fˈɑks (fox)
+      82, 156, 138, 55, 58, 61, 16, // ʤˈʌmps (jumps)
+      156, 57, 135, 64, 85, 16,    // ˈoʊvɚ (over)
+      81, 83, 16,                  // ðə (the)
+      54, 156, 47, 102, 68, 51, 16, // lˈeɪzi (lazy)
+      46, 156, 76, 92,             // dˈɔɡ (dog)
+      4,                           // .
+      0,
+    ],
+  },
+  torchic_tagline: {
+    // "Torchic runs entirely in your browser."
+    // tˈɔɹtʃɪk ɹˈʌnz ɪnˈtˈaɪɹli ɪn jɔɹ bɹˈaʊzɚ
+    // Approximated with our vocab.
+    label: "Torchic runs entirely in your browser.",
+    ids: [
+      0,
+      62, 156, 76, 123, 133, 102, 53, 16, // tˈɔɹtʃɪk
+      123, 156, 138, 56, 68, 16,          // ɹˈʌnz
+      102, 56, 156, 62, 43, 102, 123, 54, 51, 16, // ɪnˈtaɪɹli
+      102, 56, 16,                        // ɪn
+      52, 76, 123, 16,                    // jɔɹ (your)
+      44, 123, 156, 43, 135, 68, 85,      // bɹˈaʊzɚ
+      4,
+      0,
+    ],
+  },
+};
 
 interface State {
   model: Kokoro | null;
@@ -56,7 +96,7 @@ async function initBackend(ctx: FreeformContext): Promise<void> {
   ctx.log("model ready.");
   ctx.enable("load_model");
   ctx.enable("load_voice");
-  ctx.enable("synthesize_hello");
+  for (const key of Object.keys(SAMPLES)) ctx.enable(synthActionId(key));
   ctx.disable("init");
 }
 
@@ -108,12 +148,16 @@ function pickRefFromVoice(voice: nn.SafetensorsEntry, tokenCount: number): Tenso
   return Tensor.fromData(Array.from(slice), [1, styleSize]);
 }
 
-async function synthesize(ctx: FreeformContext, sample: keyof typeof SAMPLES): Promise<void> {
+async function synthesize(ctx: FreeformContext, sampleKey: string): Promise<void> {
   if (!state.model || !state.refS) {
     ctx.log("model not initialized — click Init first.");
     return;
   }
-  const info = SAMPLES[sample];
+  const info = SAMPLES[sampleKey];
+  if (!info) {
+    ctx.log(`unknown sample '${sampleKey}'.`);
+    return;
+  }
   ctx.log(`synthesizing '${info.label}' (${info.ids.length} tokens)...`);
   const inputIds = Tensor.fromData(info.ids.slice(), [1, info.ids.length]);
 
@@ -183,6 +227,10 @@ function play(ctx: FreeformContext): void {
   ctx.log(`playing ${(clean.length / SAMPLE_RATE).toFixed(2)}s of audio...`);
 }
 
+function synthActionId(key: string): string {
+  return `synth_${key}`;
+}
+
 function cleanup(ctx: FreeformContext): void {
   ctx.log("shutting down backend + clearing state.");
   state.audio = null;
@@ -197,7 +245,7 @@ function cleanup(ctx: FreeformContext): void {
   shutdown();
   ctx.disable("load_model");
   ctx.disable("load_voice");
-  ctx.disable("synthesize_hello");
+  for (const key of Object.keys(SAMPLES)) ctx.disable(synthActionId(key));
   ctx.disable("play");
   ctx.enable("init");
 }
@@ -205,12 +253,17 @@ function cleanup(ctx: FreeformContext): void {
 defineFreeform({
   name: "Kokoro: end-to-end synthesis",
   description:
-    "State machine: init backend + build Kokoro, optionally load a converted safetensors checkpoint + voice pack, synthesize a fixed phoneme sequence, play the resulting PCM. Without real weights the pipeline still runs but produces noise (speed=100 caps durations to 1 per phoneme so intermediates fit in memory).",
+    "State machine: init backend + build Kokoro, optionally load a converted safetensors checkpoint + voice pack, synthesize a phoneme sequence, play the resulting PCM. Without real weights the pipeline still runs but produces noise (speed=100 caps durations to 1 per phoneme so intermediates fit in memory).",
   actions: [
     { id: "init", label: "1. Init backend + build model", run: initBackend },
     { id: "load_model", label: "2a. Load model.safetensors", disabled: true, run: loadModel },
     { id: "load_voice", label: "2b. Load voice.safetensors", disabled: true, run: loadVoice },
-    { id: "synthesize_hello", label: `3. Synthesize "${SAMPLES.hello_world.label}"`, disabled: true, run: (c) => synthesize(c, "hello_world") },
+    ...Object.entries(SAMPLES).map(([key, sample], i) => ({
+      id: synthActionId(key),
+      label: `3.${String.fromCharCode(97 + i)} Synthesize "${sample.label}"`,
+      disabled: true,
+      run: (c: FreeformContext) => synthesize(c, key),
+    })),
     { id: "play", label: "4. Play last synthesis", disabled: true, run: async (c) => play(c) },
     { id: "cleanup", label: "Shutdown", run: async (c) => cleanup(c) },
   ],
