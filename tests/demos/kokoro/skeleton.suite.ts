@@ -34,12 +34,12 @@ async function runShapes(backend: Backend, { log }: RunContext): Promise<TestRes
     // Show a few key parameter shapes so we can eyeball them against a real
     // checkpoint. These are the ones we need to match exactly.
     const spot: string[] = [
-      "bert.embeddings.word_embeddings.W",
-      "bert_encoder.W",
-      "text_encoder.embedding.W",
+      "bert.embeddings.word_embeddings.weight",
+      "bert_encoder.weight",
+      "text_encoder.embedding.weight",
       "text_encoder.lstm.fwd.weight_ih",
       "predictor.lstm.fwd.weight_ih",
-      "predictor.duration_proj.W",
+      "predictor.duration_proj.weight",
       "predictor.F0_proj.weight",
       "decoder.conv_pre.weight",
       "decoder.ups.0.weight",

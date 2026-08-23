@@ -12,8 +12,8 @@ export class Linear extends Module {
     super();
     this.inDim = inDim;
     this.outDim = outDim;
-    this.W = this.param("W", scaledRandn([inDim, outDim], kaimingStd(inDim)));
-    this.b = bias ? this.param("b", Tensor.zeros([outDim], true)) : null;
+    this.W = this.param("weight", scaledRandn([inDim, outDim], kaimingStd(inDim)));
+    this.b = bias ? this.param("bias", Tensor.zeros([outDim], true)) : null;
   }
 
   forward(x: Tensor): Tensor {
@@ -41,7 +41,7 @@ export class Embedding extends Module {
 
   constructor(numEmbeddings: number, embedDim: number, initStd = 0.02) {
     super();
-    this.W = this.param("W", scaledRandn([numEmbeddings, embedDim], initStd));
+    this.W = this.param("weight", scaledRandn([numEmbeddings, embedDim], initStd));
   }
 
   forward(indices: Tensor): Tensor {
@@ -49,7 +49,7 @@ export class Embedding extends Module {
   }
 }
 
-// Wraps nn.Linear so state_dict keys become `<name>.linear_layer.W`,
+// Wraps nn.Linear so state_dict keys become `<name>.linear_layer.weight`,
 // matching the reference kokoro/modules.py naming for LinearNorm.
 export class LinearNorm extends Module {
   linear_layer: Linear;

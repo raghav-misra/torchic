@@ -92,7 +92,7 @@ async function runRoundtrip(backend: Backend, { log }: RunContext): Promise<Test
     let strictRejected = false;
     try {
       const bad = { ...parsed };
-      delete bad["hidden.W"];
+      delete bad["hidden.weight"];
       const dst2 = new TinyMLP(10, 4, 8);
       dst2.load_safetensors(bad, { strict: true });
     } catch {
