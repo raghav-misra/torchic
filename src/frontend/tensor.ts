@@ -360,6 +360,42 @@ export class Tensor {
     return out;
   }
 
+  // Batched matmul: this [B, M, K] × other [B, K, N] → [B, M, N].
+  // Kernels assume contiguous row-major operands; strided inputs are materialized.
+  bmm(other: Tensor): Tensor {
+    if (this.shape.length !== 3 || other.shape.length !== 3) {
+      throw new Error(`bmm requires 3D tensors. Got ${this.shape} and ${other.shape}`);
+    }
+    if (this.shape[0] !== other.shape[0]) {
+      throw new Error(`bmm batch mismatch: ${this.shape[0]} vs ${other.shape[0]}`);
+    }
+    if (this.shape[2] !== other.shape[1]) {
+      throw new Error(`bmm inner dim mismatch: ${this.shape} vs ${other.shape}`);
+    }
+
+    const a = this.materialize();
+    const b = other.materialize();
+
+    const batchCount = a.shape[0];
+    const m = a.shape[1];
+    const k = a.shape[2];
+    const n = b.shape[2];
+    const outShape = [batchCount, m, n];
+
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, batchCount * m * n * 4);
+    getDispatcher().runOp("BMM", [a.id, b.id], outId, { batchCount, m, n, k });
+
+    const shouldGrad = GradMode.enabled && (this.requiresGrad || other.requiresGrad);
+    const out = new Tensor(outId, outShape, shouldGrad);
+    if (shouldGrad) {
+      out.op = "BMM";
+      out.prev = [this, other];
+    }
+
+    return out;
+  }
+
   embedding(indices: Tensor): Tensor {
     if (this.shape.length !== 2) {
       throw new Error(`Embedding weights must be 2D, got ${this.shape}`);
@@ -388,24 +424,32 @@ export class Tensor {
     return out;
   }
 
-  transpose(): Tensor {
-    if (this.shape.length !== 2) {
-      throw new Error("Transpose only supported for 2D tensors");
+  // Zero-copy: swap two dims by permuting shape+strides. Defaults to last two
+  // (matches PyTorch's `Tensor.T` behavior for rank-2 and `torch.transpose`).
+  transpose(dim0 = -2, dim1 = -1): Tensor {
+    const rank = this.shape.length;
+    if (rank < 2) throw new Error(`Transpose requires rank >= 2, got shape ${this.shape}`);
+    const d0 = dim0 < 0 ? rank + dim0 : dim0;
+    const d1 = dim1 < 0 ? rank + dim1 : dim1;
+    if (d0 < 0 || d0 >= rank || d1 < 0 || d1 >= rank) {
+      throw new Error(`Invalid transpose dims (${dim0}, ${dim1}) for rank ${rank}`);
     }
-    const [m, n] = this.shape;
-    const outShape = [n, m];
+    const outShape = this.shape.slice();
+    const outStrides = this.strides.slice();
+    [outShape[d0], outShape[d1]] = [outShape[d1], outShape[d0]];
+    [outStrides[d0], outStrides[d1]] = [outStrides[d1], outStrides[d0]];
 
-    // Zero-copy: create a view with new ID but swap strides
     const viewId = getDispatcher().nextTensorId();
     getDispatcher().allocateView(viewId, this.id);
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
     const out = new Tensor(viewId, outShape, shouldGrad, this.offset);
-    out.strides = [this.strides[1], this.strides[0]];
+    out.strides = outStrides;
 
     if (shouldGrad) {
       out.op = "TRANSPOSE";
       out.prev = [this];
+      out.params = { axis: d0, axisSize: d1 };
     }
 
     return out;
@@ -610,6 +654,10 @@ export class Tensor {
         const [a, b] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.matmul(b.transpose()));
         if (b.requiresGrad) b.addGrad(a.transpose().matmul(v.grad));
+      } else if (v.op === "BMM") {
+        const [a, b] = v.prev;
+        if (a.requiresGrad) a.addGrad(v.grad.bmm(b.transpose(-1, -2)));
+        if (b.requiresGrad) b.addGrad(a.transpose(-1, -2).bmm(v.grad));
       } else if (v.op === "EMBEDDING") {
         const [weights, indices] = v.prev;
         if (weights.requiresGrad) {
@@ -627,7 +675,11 @@ export class Tensor {
         }
       } else if (v.op === "TRANSPOSE") {
         const [a] = v.prev;
-        if (a.requiresGrad) a.addGrad(v.grad.transpose());
+        if (a.requiresGrad) {
+          const d0 = v.params?.axis ?? -2;
+          const d1 = v.params?.axisSize ?? -1;
+          a.addGrad(v.grad.transpose(d0, d1));
+        }
       } else if (v.op === "RESHAPE") {
         const [a] = v.prev;
         if (a.requiresGrad) a.addGrad(v.grad.reshape(a.shape));

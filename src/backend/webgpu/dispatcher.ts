@@ -132,7 +132,15 @@ export class WebGPUDispatcher implements Dispatcher {
     }
 
     const pipeline = this.pipelines?.byOp.get(op);
-    if (!pipeline) throw new Error(`WebGPU backend: op '${op}' not yet ported`);
+    if (!pipeline) {
+      // BMM reuses the MATMUL pipeline with per-batch offset uniforms.
+      if (op === "BMM") {
+        const mmPipe = this.pipelines?.byOp.get("MATMUL");
+        if (!mmPipe) throw new Error(`WebGPU backend: MATMUL pipeline missing`);
+        return this.dispatchBmm(mmPipe, im, outMeta, params);
+      }
+      throw new Error(`WebGPU backend: op '${op}' not yet ported`);
+    }
 
     if (op === "MATMUL") return this.dispatchMatmul(pipeline, im, outMeta, params);
     if (op === "TRANSPOSE") return this.dispatchTranspose(pipeline, im, outMeta, params);
@@ -262,6 +270,36 @@ export class WebGPUDispatcher implements Dispatcher {
       m,
     ]);
     this.encodeAndSubmit(pipeline, u, Math.ceil(m / MATMUL_TILE), Math.ceil(n / MATMUL_TILE));
+  }
+
+  // BMM reuses the MATMUL pipeline. One command encoding, but the matmul is
+  // dispatched B times, each with input/output offsets shifted by the batch stride.
+  private dispatchBmm(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    output: TensorMetadata,
+    params: OpParams,
+  ) {
+    const batchCount = required(params.batchCount, "batchCount");
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const k = required(params.k, "k");
+    const aOffF32 = inputs[0].offset >>> 2;
+    const bOffF32 = inputs[1].offset >>> 2;
+    const oOffF32 = output.offset >>> 2;
+    for (let bi = 0; bi < batchCount; bi++) {
+      const u = new Uint32Array([
+        aOffF32 + bi * m * k,
+        bOffF32 + bi * k * n,
+        oOffF32 + bi * m * n,
+        m,
+        n,
+        k,
+        0,
+        m,
+      ]);
+      this.encodeAndSubmit(pipeline, u, Math.ceil(m / MATMUL_TILE), Math.ceil(n / MATMUL_TILE));
+    }
   }
 
   private dispatchBinary(

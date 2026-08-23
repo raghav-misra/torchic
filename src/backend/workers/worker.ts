@@ -395,6 +395,20 @@ function executeKernel(
     return;
   }
 
+  if (op === "BMM") {
+    const batchCount = required(params.batchCount, "batchCount");
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const k = required(params.k, "k");
+    const perWorker = Math.ceil(batchCount / totalWorkers);
+    const startBatch = workerIndex * perWorker;
+    const endBatch = Math.min(startBatch + perWorker, batchCount);
+    if (startBatch < batchCount) {
+      matmul.bmm(inputViews[0], inputViews[1], outputView, batchCount, m, n, k, startBatch, endBatch);
+    }
+    return;
+  }
+
   if (op === "SOFTMAX") {
     const m = required(params.m, "m");
     const n = required(params.n, "n");

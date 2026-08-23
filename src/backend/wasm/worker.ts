@@ -267,7 +267,7 @@ async function handleOp(
   // Matmul needs a per-worker private scratch panel for A-packing. Every worker
   // instance's wasm __stack_pointer starts at the same value in shared memory,
   // so we can't stack-alloc inside the kernel without workers racing.
-  if (payload.op === "MATMUL") {
+  if (payload.op === "MATMUL" || payload.op === "BMM") {
     if (!memoryAllocator) return;
     const SCRATCH_BYTES_PER_WORKER = 4 * 256 * 4; // MR(4) * KC(256) * sizeof(f32)
     const scratchSize = numWorkers * SCRATCH_BYTES_PER_WORKER;
@@ -281,7 +281,7 @@ async function handleOp(
       port.postMessage({
         type: "EXECUTE_TASK",
         taskId,
-        op: "MATMUL",
+        op: payload.op,
         inputs: inputs.map((m) => ({ offset: m.offset, size: m.size })),
         output: { offset: output.offset, size: output.size },
         params: {
@@ -556,6 +556,31 @@ function executeKernel(
       aColStride,
       bRowStride,
       bColStride,
+      required(params.scratchPtr, "scratchPtr"),
+    );
+    return;
+  }
+
+  if (op === "BMM") {
+    const batchCount = required(params.batchCount, "batchCount");
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const k = required(params.k, "k");
+    const perWorker = Math.ceil(batchCount / totalWorkers);
+    const startBatch = workerIndex * perWorker;
+    const endBatch = Math.min(startBatch + perWorker, batchCount);
+    if (startBatch >= batchCount) return;
+
+    exports.bmm(
+      inputs[0].offset,
+      inputs[1].offset,
+      output.offset,
+      batchCount,
+      m,
+      n,
+      k,
+      startBatch,
+      endBatch,
       required(params.scratchPtr, "scratchPtr"),
     );
     return;

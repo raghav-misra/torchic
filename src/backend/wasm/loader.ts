@@ -20,6 +20,19 @@ export interface KernelExports {
     scratchPtr: number,
   ): void;
 
+  bmm(
+    aPtr: number,
+    bPtr: number,
+    outPtr: number,
+    batchCount: number,
+    m: number,
+    n: number,
+    k: number,
+    startBatch: number,
+    endBatch: number,
+    scratchPtr: number,
+  ): void;
+
   add(aPtr: number, bPtr: number, outPtr: number, start: number, end: number): void;
   sub(aPtr: number, bPtr: number, outPtr: number, start: number, end: number): void;
   mul(aPtr: number, bPtr: number, outPtr: number, start: number, end: number): void;

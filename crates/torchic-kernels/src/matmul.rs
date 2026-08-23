@@ -204,3 +204,45 @@ pub unsafe extern "C" fn matmul(
         scalar_tile(a, b, out, i, end_row, 0, n, k, n, a_rs, a_cs, b_rs, b_cs);
     }
 }
+
+// Batched matmul with contiguous row-major operands. Loops the existing
+// `matmul` implementation over each batch, reusing the same scratch panel.
+#[no_mangle]
+pub unsafe extern "C" fn bmm(
+    a: *const f32,
+    b: *const f32,
+    out: *mut f32,
+    batch_count: u32,
+    m: u32,
+    n: u32,
+    k: u32,
+    start_batch: u32,
+    end_batch: u32,
+    scratch: *mut f32,
+) {
+    let m_us = m as usize;
+    let n_us = n as usize;
+    let k_us = k as usize;
+    let stride_a = m_us * k_us;
+    let stride_b = k_us * n_us;
+    let stride_out = m_us * n_us;
+    let _ = batch_count;
+    for bi in start_batch..end_batch {
+        let bi_us = bi as usize;
+        matmul(
+            a.add(bi_us * stride_a),
+            b.add(bi_us * stride_b),
+            out.add(bi_us * stride_out),
+            m,
+            n,
+            k,
+            0,
+            m,
+            k, // a_row_stride
+            1, // a_col_stride
+            n, // b_row_stride
+            1, // b_col_stride
+            scratch,
+        );
+    }
+}

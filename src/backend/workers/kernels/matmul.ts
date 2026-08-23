@@ -25,11 +25,8 @@ export function matmul(
         for (let i = i0; i < iMax; i++) {
           const aRowBase = i * aRowStride;
           const outRowBase = i * n;
-          // Zero the output row once per (i, j) block, on the first k-block.
           if (p0 === 0) {
-            for (let j = j0; j < jMax; j++) {
-              out[outRowBase + j] = 0;
-            }
+            for (let j = j0; j < jMax; j++) out[outRowBase + j] = 0;
           }
           for (let p = p0; p < pMax; p++) {
             const aVal = a[aRowBase + p * aColStride];
@@ -41,5 +38,38 @@ export function matmul(
         }
       }
     }
+  }
+}
+
+// Batched matmul: same as matmul but repeated over `batchCount` independent
+// [M,K] × [K,N] pairs stored contiguously in memory.
+export function bmm(
+  a: Float32Array,
+  b: Float32Array,
+  out: Float32Array,
+  batchCount: number,
+  m: number,
+  n: number,
+  k: number,
+  startBatch: number,
+  endBatch: number,
+) {
+  const strideA = m * k;
+  const strideB = k * n;
+  const strideOut = m * n;
+  for (let bi = startBatch; bi < endBatch; bi++) {
+    const aOff = bi * strideA;
+    const bOff = bi * strideB;
+    const oOff = bi * strideOut;
+    matmul(
+      a.subarray(aOff, aOff + strideA),
+      b.subarray(bOff, bOff + strideB),
+      out.subarray(oOff, oOff + strideOut),
+      m,
+      n,
+      k,
+      0,
+      m,
+    );
   }
 }

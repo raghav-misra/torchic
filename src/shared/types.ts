@@ -22,6 +22,7 @@ export interface OpParams {
   scratchPtr?: number;
   axisSize?: number;
   innerSize?: number;
+  batchCount?: number;
 }
 
 export interface BufferRegion {
