@@ -49,6 +49,42 @@ export class Embedding extends Module {
   }
 }
 
+// Wraps nn.Linear so state_dict keys become `<name>.linear_layer.W`,
+// matching the reference kokoro/modules.py naming for LinearNorm.
+export class LinearNorm extends Module {
+  linear_layer: Linear;
+
+  constructor(inDim: number, outDim: number, bias = true) {
+    super();
+    this.linear_layer = this.child("linear_layer", new Linear(inDim, outDim, bias));
+  }
+
+  forward(x: Tensor): Tensor {
+    return this.linear_layer.forward(x);
+  }
+}
+
+// Snake activation (Neural Audio Synthesis of Musical Notes / BigVGAN),
+// x + (1/α) · sin(α·x)². α is a learnable per-channel parameter of shape
+// [1, C, 1] so it broadcasts across batch and length dimensions.
+export class Snake1D extends Module {
+  alpha: Tensor;
+  private channels: number;
+
+  constructor(channels: number) {
+    super();
+    this.channels = channels;
+    this.alpha = this.param("alpha", Tensor.ones([1, channels, 1], true));
+  }
+
+  forward(x: Tensor): Tensor {
+    const ax = this.alpha.mul(x);
+    const sinSq = ax.sin().mul(ax.sin());
+    const invAlpha = Tensor.ones([1, this.channels, 1]).div(this.alpha);
+    return x.add(invAlpha.mul(sinSq));
+  }
+}
+
 export class Sequential extends Module {
   layers: Module[];
 

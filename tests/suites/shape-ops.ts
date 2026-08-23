@@ -83,6 +83,26 @@ async function runShapeOps(backend: Backend, { log }: RunContext): Promise<TestR
       record(`pad1d(1,2) [2,3]`, cmp.ok && p.shape.join(",") === "2,6", `shape=${p.shape}`);
     }
 
+    // ReflectionPad1d — matches nn.ReflectionPad1d((left, right)) semantics.
+    {
+      const a = Tensor.fromData([1, 2, 3, 4], [1, 4]);
+      const p = a.reflectionPad1d(2, 1);
+      const got = await p.toArray();
+      const expected = new Float32Array([3, 2, 1, 2, 3, 4, 3]);
+      const cmp = nearlyEqual(got, expected, 0);
+      record(`reflectionPad1d(2,1) [1,4]`, cmp.ok && p.shape.join(",") === "1,7", `shape=${p.shape}`);
+    }
+
+    // ReflectionPad1d((1,0)) — the exact form Kokoro's Generator uses.
+    {
+      const a = Tensor.fromData(arange(6), [1, 2, 3]);
+      const p = a.reflectionPad1d(1, 0);
+      const got = await p.toArray();
+      const expected = new Float32Array([1, 0, 1, 2, 4, 3, 4, 5]);
+      const cmp = nearlyEqual(got, expected, 0);
+      record(`reflectionPad1d(1,0) [1,2,3]`, cmp.ok && p.shape.join(",") === "1,2,4", `shape=${p.shape}`);
+    }
+
     // Split — 4 chunks along last dim.
     {
       const a = Tensor.fromData(arange(8), [2, 4]);

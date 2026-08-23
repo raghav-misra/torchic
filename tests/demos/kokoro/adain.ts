@@ -12,7 +12,7 @@ export class AdaIN1d extends Module {
 
   constructor(styleDim: number, numFeatures: number) {
     super();
-    this.norm = this.child("norm", new InstanceNorm1d(numFeatures, 1e-5, false));
+    this.norm = this.child("norm", new InstanceNorm1d(numFeatures, 1e-5, true));
     this.fc = this.child("fc", new Linear(styleDim, numFeatures * 2));
   }
 

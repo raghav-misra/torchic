@@ -344,6 +344,31 @@ export class Tensor {
     return Tensor.concat(parts, -1);
   }
 
+  // Reflection padding on the last dim. Composed from slice + concat (no kernel).
+  // Matches nn.ReflectionPad1d: boundary elements are the reflection axis.
+  reflectionPad1d(left: number, right: number): Tensor {
+    if (left < 0 || right < 0) throw new Error(`reflectionPad1d: negative pad`);
+    if (left === 0 && right === 0) return this;
+    const rank = this.shape.length;
+    if (rank < 1) throw new Error(`reflectionPad1d: needs at least 1D input`);
+    const L = this.shape[rank - 1];
+    if (left >= L || right >= L) {
+      throw new Error(`reflectionPad1d: pad(${left},${right}) must be < last dim ${L}`);
+    }
+    const buildRange = (start: number, end: number): [number, number][] => {
+      const rs: [number, number][] = [];
+      for (let d = 0; d < rank; d++) {
+        rs.push(d === rank - 1 ? [start, end] : [0, this.shape[d]]);
+      }
+      return rs;
+    };
+    const parts: Tensor[] = [];
+    for (let i = left; i >= 1; i--) parts.push(this.slice(buildRange(i, i + 1)));
+    parts.push(this);
+    for (let i = 1; i <= right; i++) parts.push(this.slice(buildRange(L - 1 - i, L - i)));
+    return Tensor.concat(parts, -1);
+  }
+
   // Split into `sections` equal-sized chunks along `axis` (last dim by default).
   // Zero-copy: each chunk is a slice view. Requires shape[axis] divisible by sections.
   split(sections: number, axis = -1): Tensor[] {

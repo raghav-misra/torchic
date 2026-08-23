@@ -2,6 +2,7 @@ export { Module } from "./module";
 export type { StateDict } from "./module";
 export {
   Linear,
+  LinearNorm,
   Embedding,
   Sequential,
   LayerNorm,
@@ -13,6 +14,7 @@ export {
   ConvTranspose1d,
   LSTMCell,
   BiLSTM,
+  Snake1D,
   lstmForward,
   sinusoidalPositionalEncoding,
 } from "./layers";
