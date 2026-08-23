@@ -44,15 +44,20 @@ function pickFile(accept: string): Promise<File | null> {
 }
 
 async function initBackend(ctx: FreeformContext): Promise<void> {
-  const memorySizeMB = 1536;
-  ctx.log("initializing wasm backend (SIMD; more stable large-heap than webgpu today)...");
+  // Kokoro F32 params = 328 MB. WASM commits the full heap up front (shared
+  // memory needs to reserve physical pages) so 1.5 GB freezes lower-RAM PCs;
+  // 768 MB is plenty for 328 MB of params + intermediates when we dispose
+  // aggressively. WebGPU allocates on the GPU so it can stretch further.
+  const wasmHeapMB = 768;
+  const webgpuHeapMB = 1536;
+  ctx.log(`initializing wasm backend (heap ${wasmHeapMB} MB)...`);
   try {
-    await init({ backend: "wasm", threadCount: 4, memorySizeMB });
-    ctx.log(`wasm ready (heap ${memorySizeMB} MB).`);
+    await init({ backend: "wasm", threadCount: 4, memorySizeMB: wasmHeapMB });
+    ctx.log(`wasm ready.`);
   } catch (e) {
     ctx.log(`wasm init failed (${String(e)}), falling back to webgpu.`);
-    await init({ backend: "webgpu", memorySizeMB });
-    ctx.log(`webgpu ready (heap ${memorySizeMB} MB).`);
+    await init({ backend: "webgpu", memorySizeMB: webgpuHeapMB });
+    ctx.log(`webgpu ready (heap ${webgpuHeapMB} MB).`);
   }
   ctx.log("building Kokoro module tree (~82M random-init params)...");
   state.model = new Kokoro();
