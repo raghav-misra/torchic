@@ -9,5 +9,5 @@ export { AdaIN1d, AdaLayerNorm } from "./adain";
 export { AdainResBlk1d } from "./resblocks";
 export { TextEncoder } from "./text_encoder";
 export { DurationEncoder, ProsodyPredictor } from "./predictor";
-export { ISTFTGenerator, ResBlock1, MRF } from "./istftnet";
+export { Decoder, Generator, AdaINResBlock1, SourceModuleHnNSF, SineGen } from "./istftnet";
 export { PLBERT, PLBERTEmbeddings } from "./plbert";

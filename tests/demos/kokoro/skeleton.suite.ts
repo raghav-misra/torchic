@@ -15,7 +15,7 @@ async function runShapes(backend: Backend, { log }: RunContext): Promise<TestRes
     log(`total parameters: ${total.toLocaleString()} (~${(total / 1e6).toFixed(1)}M)`);
 
     const targetLo = 60_000_000;
-    const targetHi = 130_000_000;
+    const targetHi = 160_000_000;
     log(`sanity target range: [${targetLo.toLocaleString()}, ${targetHi.toLocaleString()}]`);
 
     // Print param counts per top-level submodule.
@@ -41,10 +41,14 @@ async function runShapes(backend: Backend, { log }: RunContext): Promise<TestRes
       "predictor.lstm.fwd.weight_ih",
       "predictor.duration_proj.weight",
       "predictor.F0_proj.weight",
-      "decoder.conv_pre.weight",
-      "decoder.ups.0.weight",
-      "decoder.mrfs.0.resblocks.0.convs1.0.weight",
-      "decoder.conv_post_mag.weight",
+      "decoder.encode.conv1.weight",
+      "decoder.decode.3.pool.weight",
+      "decoder.asr_res.0.weight",
+      "decoder.generator.m_source.l_linear.weight",
+      "decoder.generator.ups.0.weight",
+      "decoder.generator.resblocks.0.convs1.0.weight",
+      "decoder.generator.resblocks.0.alpha1.0",
+      "decoder.generator.conv_post.weight",
     ];
     log("spot-check shapes:");
     for (const k of spot) {

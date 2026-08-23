@@ -90,7 +90,8 @@ export class Sequential extends Module {
 
   constructor(...layers: Module[]) {
     super();
-    this.layers = this.childList("layers", layers);
+    // PyTorch nn.Sequential names entries `0`, `1`, ... (no wrapper prefix).
+    this.layers = layers.map((m, i) => this.child(String(i), m));
   }
 
   forward(x: Tensor): Tensor {

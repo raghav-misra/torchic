@@ -20,6 +20,22 @@ export abstract class Module {
     return tensor;
   }
 
+  // Ordered list of leaf parameters — state dict keys become `${name}.0`, `${name}.1`, ...
+  // matching PyTorch's nn.ParameterList convention.
+  protected paramList(name: string, tensors: Tensor[]): Tensor[] {
+    tensors.forEach((t, i) => {
+      const key = `${name}.${i}`;
+      if (!t.requiresGrad) {
+        throw new Error(`Module parameter '${key}' must have requires_grad=true`);
+      }
+      if (this._params.has(key)) {
+        throw new Error(`Module already has parameter '${key}'`);
+      }
+      this._params.set(key, t);
+    });
+    return tensors;
+  }
+
   // Non-trainable state (running stats, positional caches). Included in state_dict.
   protected buffer(name: string, tensor: Tensor): Tensor {
     if (this._buffers.has(name)) {
