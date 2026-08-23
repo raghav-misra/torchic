@@ -72,13 +72,18 @@ export class Kokoro extends Module {
 
     const bertOut = this.bert.forward(inputIds);
     const dEn = this.bert_encoder.forward(bertOut).transpose(-1, -2);
+    bertOut.dispose();
 
     const d = this.predictor.text_encoder.forward(dEn, sProsody);
+    dEn.dispose();
     const dLstm = this.predictor.lstm.forward(d);
     const durationLogits = this.predictor.duration_proj.forward(dLstm);
+    dLstm.dispose();
 
     const durationSum = durationLogits.sigmoid().sum(-1);
     const durationArr = await durationSum.toArray();
+    durationLogits.dispose();
+    durationSum.dispose();
     const predDur: number[] = [];
     for (let t = 0; t < T; t++) {
       const raw = Math.max(1, Math.round(durationArr[t] / speed));
@@ -96,13 +101,23 @@ export class Kokoro extends Module {
     }
     const predAlnTrg = Tensor.fromData(Array.from(alnData), [B, T, L]);
 
-    const en = d.transpose(-1, -2).bmm(predAlnTrg);
+    const dT = d.transpose(-1, -2);
+    const en = dT.bmm(predAlnTrg);
+    d.dispose();
     const { F0, N } = this.predictor.F0Nforward(en, sProsody);
+    en.dispose();
 
     const tEn = this.text_encoder.forward(inputIds);
     const asr = tEn.bmm(predAlnTrg);
+    tEn.dispose();
+    predAlnTrg.dispose();
 
     const audio = await this.decoder.forward(asr, F0, N, sDecoder);
+    asr.dispose();
+    F0.dispose();
+    N.dispose();
+    sDecoder.dispose();
+    sProsody.dispose();
     return { audio, predDur };
   }
 }

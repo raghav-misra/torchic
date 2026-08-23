@@ -474,16 +474,29 @@ export class Decoder extends Module {
     const F0 = this.F0_conv.forward(F0In);
     const N2 = this.N_conv.forward(NIn);
 
-    let x = Tensor.concat([asr, F0, N2], 1);
-    x = this.encode.forward(x, s);
+    const xCat = Tensor.concat([asr, F0, N2], 1);
+    let x = this.encode.forward(xCat, s);
+    xCat.dispose();
     const asrRes = this.asr_res.forward(asr);
 
     let addRes = true;
     for (const block of this.decode) {
-      if (addRes) x = Tensor.concat([x, asrRes, F0, N2], 1);
-      x = block.forward(x, s);
+      let blockIn = x;
+      if (addRes) {
+        blockIn = Tensor.concat([x, asrRes, F0, N2], 1);
+        x.dispose();
+      }
+      const next = block.forward(blockIn, s);
+      blockIn.dispose();
+      x = next;
       if (block["pool"] !== null) addRes = false;
     }
-    return this.generator.forward(x, s, F0_curve);
+    asrRes.dispose();
+    F0.dispose();
+    N2.dispose();
+
+    const audio = await this.generator.forward(x, s, F0_curve);
+    x.dispose();
+    return audio;
   }
 }
