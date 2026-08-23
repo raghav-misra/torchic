@@ -1,0 +1,12 @@
+[project]
+name = "torchic-scripts"
+version = "0.0.0"
+description = "Python tooling for torchic (Kokoro checkpoint conversion)."
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1",
+    "safetensors>=0.4",
+]
+
+[tool.uv]
+package = false

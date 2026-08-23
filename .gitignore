@@ -22,5 +22,12 @@ yarn-error.log*
 crates/**/target/
 src/backend/wasm/kernels.wasm
 
+# Python
+.venv/
+venv/
+__pycache__/
+*.egg-info/
+uv.lock
+
 # Agent session transcripts
 chat.md
