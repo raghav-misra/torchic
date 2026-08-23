@@ -5,20 +5,20 @@ import type {
   ComputeResponse,
 } from "../../shared/types";
 
-export type WasmInitCoordinator = {
+export interface WasmInitCoordinator {
   type: "INIT_WASM_COORDINATOR";
   id: string;
   payload: { memory: WebAssembly.Memory; totalWorkers: number; heapBase: number };
-};
+}
 
-export type WasmInitWorker = {
+export interface WasmInitWorker {
   type: "INIT_WASM_WORKER";
   payload: {
     workerId: number;
     module: WebAssembly.Module;
     memory: WebAssembly.Memory;
   };
-};
+}
 
 export type WasmCoordinatorRequest = CoordinatorRequest | WasmInitCoordinator;
 export type WasmComputeRequest = ComputeRequest | WasmInitWorker;

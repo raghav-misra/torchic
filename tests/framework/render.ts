@@ -216,7 +216,7 @@ function buttonLabel(suite: Suite, p: unknown, i: number): string {
 
 function paramValueLabel(suite: Suite, p: unknown, i: number): string {
   const val =
-    p == null
+    p === null || p === undefined
       ? `#${i}`
       : typeof p === "number" || typeof p === "string" || typeof p === "boolean"
         ? String(p)

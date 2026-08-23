@@ -819,8 +819,6 @@ export class Tensor {
     return out;
   }
 
-  mean(): Tensor;
-  mean(axis: number, keepDim?: boolean): Tensor;
   mean(axis?: number, keepDim = false): Tensor {
     if (axis === undefined) {
       const s = this.sum();

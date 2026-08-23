@@ -42,7 +42,7 @@ function findSuite(registry: readonly Suite[], query: string): Suite | undefined
 
 function paramLabel(suite: Suite, param: unknown, index: number): string {
   const val =
-    param == null
+    param === null || param === undefined
       ? `#${index}`
       : typeof param === "string" || typeof param === "number" || typeof param === "boolean"
         ? String(param)

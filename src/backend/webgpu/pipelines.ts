@@ -91,9 +91,11 @@ export async function buildPipelines(device: GPUDevice): Promise<Pipelines> {
 
   const byOp = new Map<string, GPUComputePipeline>();
   const compiles = Object.entries(OP_TO_ENTRY).map(async ([op, spec]) => {
+    const shaderModule = modules.get(spec.module);
+    if (!shaderModule) throw new Error(`shader module '${spec.module}' not registered for op '${op}'`);
     const pipeline = await device.createComputePipelineAsync({
       layout,
-      compute: { module: modules.get(spec.module)!, entryPoint: spec.entry },
+      compute: { module: shaderModule, entryPoint: spec.entry },
       label: op,
     });
     byOp.set(op, pipeline);

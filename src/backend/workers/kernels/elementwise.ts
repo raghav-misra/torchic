@@ -398,11 +398,18 @@ export function gelu(
   shape?: number[],
   strides?: number[],
 ) {
-  const strided = shape && strides;
-  for (let i = start; i < end; i++) {
-    const x = strided ? stridedRead(a, i, shape!, strides!) : a[i];
-    const u = GELU_C * (x + GELU_B * x * x * x);
-    out[i] = 0.5 * x * (1 + Math.tanh(u));
+  if (shape && strides) {
+    for (let i = start; i < end; i++) {
+      const x = stridedRead(a, i, shape, strides);
+      const u = GELU_C * (x + GELU_B * x * x * x);
+      out[i] = 0.5 * x * (1 + Math.tanh(u));
+    }
+  } else {
+    for (let i = start; i < end; i++) {
+      const x = a[i];
+      const u = GELU_C * (x + GELU_B * x * x * x);
+      out[i] = 0.5 * x * (1 + Math.tanh(u));
+    }
   }
 }
 
@@ -415,15 +422,26 @@ export function gelu_backward(
   shape?: number[],
   strides?: number[],
 ) {
-  const strided = shape && strides;
-  for (let i = start; i < end; i++) {
-    const x = strided ? stridedRead(input, i, shape!, strides!) : input[i];
-    const x2 = x * x;
-    const u = GELU_C * (x + GELU_B * x * x2);
-    const t = Math.tanh(u);
-    const dudx = GELU_C * (1 + 3 * GELU_B * x2);
-    const dgelu = 0.5 * (1 + t) + 0.5 * x * (1 - t * t) * dudx;
-    gradInput[i] = gradOutput[i] * dgelu;
+  if (shape && strides) {
+    for (let i = start; i < end; i++) {
+      const x = stridedRead(input, i, shape, strides);
+      const x2 = x * x;
+      const u = GELU_C * (x + GELU_B * x * x2);
+      const t = Math.tanh(u);
+      const dudx = GELU_C * (1 + 3 * GELU_B * x2);
+      const dgelu = 0.5 * (1 + t) + 0.5 * x * (1 - t * t) * dudx;
+      gradInput[i] = gradOutput[i] * dgelu;
+    }
+  } else {
+    for (let i = start; i < end; i++) {
+      const x = input[i];
+      const x2 = x * x;
+      const u = GELU_C * (x + GELU_B * x * x2);
+      const t = Math.tanh(u);
+      const dudx = GELU_C * (1 + 3 * GELU_B * x2);
+      const dgelu = 0.5 * (1 + t) + 0.5 * x * (1 - t * t) * dudx;
+      gradInput[i] = gradOutput[i] * dgelu;
+    }
   }
 }
 
@@ -435,10 +453,10 @@ export function sqrt(
   shape?: number[],
   strides?: number[],
 ) {
-  const strided = shape && strides;
-  for (let i = start; i < end; i++) {
-    const x = strided ? stridedRead(a, i, shape!, strides!) : a[i];
-    out[i] = Math.sqrt(x);
+  if (shape && strides) {
+    for (let i = start; i < end; i++) out[i] = Math.sqrt(stridedRead(a, i, shape, strides));
+  } else {
+    for (let i = start; i < end; i++) out[i] = Math.sqrt(a[i]);
   }
 }
 
@@ -463,10 +481,10 @@ export function rsqrt(
   shape?: number[],
   strides?: number[],
 ) {
-  const strided = shape && strides;
-  for (let i = start; i < end; i++) {
-    const x = strided ? stridedRead(a, i, shape!, strides!) : a[i];
-    out[i] = 1 / Math.sqrt(x);
+  if (shape && strides) {
+    for (let i = start; i < end; i++) out[i] = 1 / Math.sqrt(stridedRead(a, i, shape, strides));
+  } else {
+    for (let i = start; i < end; i++) out[i] = 1 / Math.sqrt(a[i]);
   }
 }
 

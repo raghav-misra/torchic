@@ -16,6 +16,9 @@ const ROW_TILE = 64;
 const UNIFORM_BUFFER_SIZE = 256;
 const SUM_PARTIALS = 64;
 
+// Sentinel free() for maybeMaterialize when the input was already contiguous.
+const NOOP_FREE = (): void => undefined;
+
 export class WebGPUDispatcher implements Dispatcher {
   private device: GPUDevice | null = null;
   private queue: GPUQueue | null = null;
@@ -196,7 +199,7 @@ export class WebGPUDispatcher implements Dispatcher {
       op === "COPY"
     ) {
       const inA =
-        op === "COPY" ? { meta: im[0], free: () => {} }
+        op === "COPY" ? { meta: im[0], free: NOOP_FREE }
                       : this.maybeMaterialize(im[0], params.shape, params.strides);
       this.dispatchUnary(pipeline, inA.meta, outMeta);
       inA.free();
@@ -204,6 +207,36 @@ export class WebGPUDispatcher implements Dispatcher {
     }
 
     throw new Error(`WebGPU backend: op '${op}' dispatch missing`);
+  }
+
+  // Narrowed accessor for initialized WebGPU state. runOp() and init() are the
+  // only entry points that can create work, so anything they call transitively
+  // sees non-null fields; TypeScript can't see that, so we centralize the check.
+  private requireReady() {
+    if (
+      !this.device ||
+      !this.queue ||
+      !this.uniforms ||
+      !this.bindGroup ||
+      !this.pipelines ||
+      !this.allocator
+    ) {
+      throw new Error("WebGPU dispatcher not initialized");
+    }
+    return {
+      device: this.device,
+      queue: this.queue,
+      uniforms: this.uniforms,
+      bindGroup: this.bindGroup,
+      pipelines: this.pipelines,
+      allocator: this.allocator,
+    };
+  }
+
+  private requirePipeline(op: string): GPUComputePipeline {
+    const p = this.requireReady().pipelines.byOp.get(op);
+    if (!p) throw new Error(`WebGPU pipeline for op '${op}' not registered`);
+    return p;
   }
 
   // Returns the operand as-is if contiguous, otherwise a freshly materialized scratch
@@ -214,9 +247,9 @@ export class WebGPUDispatcher implements Dispatcher {
     strides: number[] | undefined,
   ): { meta: TensorMetadata; free: () => void } {
     if (!shape || !strides || isContiguous(shape, strides)) {
-      return { meta: src, free: () => {} };
+      return { meta: src, free: NOOP_FREE };
     }
-    const alloc = this.allocator!;
+    const alloc = this.requireReady().allocator;
     const outSize = shape.reduce((a, b) => a * b, 1) * 4;
     const outOffset = alloc.allocate(outSize);
     this.encodeMaterialize(src, { offset: outOffset, size: outSize, isView: false }, shape, strides);
@@ -236,7 +269,7 @@ export class WebGPUDispatcher implements Dispatcher {
     if (shape.length > 8) {
       throw new Error(`WebGPU MATERIALIZE supports at most 8 dims (got ${shape.length})`);
     }
-    const pipeline = this.pipelines!.byOp.get("MATERIALIZE")!;
+    const pipeline = this.requirePipeline("MATERIALIZE");
     const count = out.size / 4;
     const u = new Uint32Array(20);
     u[0] = src.offset >>> 2;
@@ -377,9 +410,9 @@ export class WebGPUDispatcher implements Dispatcher {
   }
 
   private dispatchSum(inputs: TensorMetadata[], out: TensorMetadata) {
-    const alloc = this.allocator!;
-    const partial = this.pipelines!.byOp.get("SUM_PARTIAL")!;
-    const final = this.pipelines!.byOp.get("SUM_FINAL")!;
+    const { allocator: alloc } = this.requireReady();
+    const partial = this.requirePipeline("SUM_PARTIAL");
+    const final = this.requirePipeline("SUM_FINAL");
 
     const tempSize = SUM_PARTIALS * 4;
     const tempOffset = alloc.allocate(tempSize);
@@ -468,10 +501,9 @@ export class WebGPUDispatcher implements Dispatcher {
     workgroupsX: number,
     workgroupsY: number,
   ) {
-    const device = this.device!;
-    const queue = this.queue!;
+    const { device, queue, uniforms: uniformsBuf, bindGroup } = this.requireReady();
     queue.writeBuffer(
-      this.uniforms!,
+      uniformsBuf,
       0,
       uniforms.buffer as ArrayBuffer,
       uniforms.byteOffset,
@@ -480,7 +512,7 @@ export class WebGPUDispatcher implements Dispatcher {
     const encoder = device.createCommandEncoder();
     const pass = encoder.beginComputePass();
     pass.setPipeline(pipeline);
-    pass.setBindGroup(0, this.bindGroup!);
+    pass.setBindGroup(0, bindGroup);
     pass.dispatchWorkgroups(workgroupsX, workgroupsY);
     pass.end();
     queue.submit([encoder.finish()]);

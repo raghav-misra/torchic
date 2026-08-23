@@ -4,7 +4,7 @@ export interface RunContext {
   log: Log;
 }
 
-export type TestResult = { pass: boolean; message?: string };
+export interface TestResult { pass: boolean; message?: string }
 export type BenchMetrics = Record<string, number | string>;
 
 export interface TestOptions<TParam> {

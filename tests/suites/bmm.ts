@@ -35,7 +35,7 @@ async function runBmm(backend: Backend, { log }: RunContext): Promise<TestResult
   const threads = backend === "webgpu" ? 1 : 4;
   await init({ backend, threadCount: threads, memorySizeMB: 32 });
   try {
-    const cases: Array<{ bc: number; m: number; k: number; n: number }> = [
+    const cases: { bc: number; m: number; k: number; n: number }[] = [
       { bc: 1, m: 16, k: 16, n: 16 },   // single-batch equivalence
       { bc: 4, m: 8, k: 12, n: 16 },    // small batched
       { bc: 8, m: 32, k: 16, n: 32 },   // typical MHA head shape

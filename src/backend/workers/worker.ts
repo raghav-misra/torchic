@@ -39,7 +39,7 @@ self.onmessage = defineWorkerOnMessage<CoordinatorRequest | ComputeRequest>((dat
     role = "COORDINATOR";
     const payload = data.payload;
     buffer = payload.buffer;
-    memoryAllocator = new MemoryAllocator(buffer!);
+    memoryAllocator = new MemoryAllocator(buffer);
     self.postMessage({ id: data.id, data: { status: "ok" } });
     return;
   }
@@ -366,9 +366,10 @@ function executeKernel(
   totalWorkers: number,
 ) {
   if (!buffer) return;
+  const buf = buffer;
 
-  const inputViews = inputs.map((meta) => new Float32Array(buffer!, meta.offset, meta.size / 4));
-  const outputView = new Float32Array(buffer!, output.offset, output.size / 4);
+  const inputViews = inputs.map((meta) => new Float32Array(buf, meta.offset, meta.size / 4));
+  const outputView = new Float32Array(buf, output.offset, output.size / 4);
 
   if (op === "MATMUL") {
     const m = required(params.m, "m");
