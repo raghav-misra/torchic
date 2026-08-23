@@ -113,6 +113,15 @@ h1 {
   color: white;
 }
 
+.buttons button.secondary {
+  margin-left: auto;
+  opacity: 0.75;
+}
+
+.buttons button.secondary:hover:not(:disabled) {
+  opacity: 1;
+}
+
 .result {
   margin-top: 12px;
   overflow-x: auto;
@@ -207,6 +216,28 @@ h1 {
   cursor: pointer;
   color: var(--fg-muted);
   user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.log-copy {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0.75;
+}
+
+.log-copy:hover {
+  opacity: 1;
+  color: var(--fg);
+  border-color: var(--border-strong);
 }
 
 .log {

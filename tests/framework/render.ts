@@ -14,8 +14,8 @@ function renderSuite(suite: Suite): HTMLElement {
 
   const [logEl, log] = makeLog();
   const result = el("div", "result");
-  const runner =
-    suite.kind === "test" ? makeTestRunner(suite, result) : makeBenchRunner(suite, result);
+  const bench = suite.kind === "bench" ? makeBenchRunner(suite, result) : null;
+  const runner = bench ? bench.run : makeTestRunner(suite as TestSuite, result);
 
   const buttons = el("div", "buttons");
   const paramButtons: HTMLButtonElement[] = suite.params.map((param, i) => {
@@ -31,6 +31,24 @@ function renderSuite(suite: Suite): HTMLElement {
   if (suite.params.length > 1) buttons.appendChild(runAll);
 
   const allButtons: HTMLButtonElement[] = [...paramButtons, runAll];
+
+  if (bench) {
+    const copyBtn = document.createElement("button");
+    copyBtn.textContent = "Copy Markdown";
+    copyBtn.className = "secondary";
+    copyBtn.addEventListener("click", async () => {
+      const md = bench.toMarkdown();
+      const original = copyBtn.textContent;
+      try {
+        await navigator.clipboard.writeText(md);
+        copyBtn.textContent = "Copied!";
+      } catch {
+        copyBtn.textContent = "Copy failed";
+      }
+      setTimeout(() => (copyBtn.textContent = original), 1200);
+    });
+    buttons.appendChild(copyBtn);
+  }
 
   paramButtons.forEach((btn, i) => {
     btn.addEventListener("click", async () => {
@@ -101,6 +119,7 @@ function makeBenchRunner(suite: BenchSuite, container: HTMLElement) {
   const highlight = new Set(suite.highlight ?? []);
   const rows: (HTMLTableRowElement | null)[] = [];
   const paramLabels: string[] = suite.params.map((p, i) => paramValueLabel(suite, p, i));
+  const cellData: (BenchMetrics | null)[] = suite.params.map(() => null);
 
   const isHighlighted = (col: string) => highlight.has(col);
 
@@ -132,7 +151,11 @@ function makeBenchRunner(suite: BenchSuite, container: HTMLElement) {
   rebuildHeader();
   for (let i = 0; i < suite.params.length; i++) upsertRow(i, { [firstCol]: paramLabels[i] });
 
-  return async (param: unknown, index: number, log: (m: string) => void): Promise<void> => {
+  const run = async (
+    param: unknown,
+    index: number,
+    log: (m: string) => void,
+  ): Promise<void> => {
     upsertRow(index, null);
     let metrics: BenchMetrics;
     try {
@@ -140,6 +163,7 @@ function makeBenchRunner(suite: BenchSuite, container: HTMLElement) {
     } catch (e) {
       metrics = { error: String(e) };
     }
+    cellData[index] = metrics;
     for (const k of Object.keys(metrics)) {
       if (!columns.includes(k) && k !== firstCol) columns.push(k);
     }
@@ -155,6 +179,33 @@ function makeBenchRunner(suite: BenchSuite, container: HTMLElement) {
       }
     }
   };
+
+  const toMarkdown = (): string => {
+    const escapeCell = (s: string) =>
+      s.replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
+    const headerCells = columns.map((c) =>
+      isHighlighted(c) ? `**${escapeCell(c)}**` : escapeCell(c),
+    );
+    const header = `| ${headerCells.join(" | ")} |`;
+    const sep = `| ${columns.map(() => "---").join(" | ")} |`;
+
+    const bodyRows: string[] = [];
+    for (let i = 0; i < suite.params.length; i++) {
+      const cells: string[] = [escapeCell(paramLabels[i])];
+      const metrics = cellData[i];
+      for (let c = 1; c < columns.length; c++) {
+        const key = columns[c];
+        const raw = metrics && key in metrics ? String(metrics[key]) : "";
+        const cell = escapeCell(raw);
+        cells.push(isHighlighted(key) && raw ? `**${cell}**` : cell);
+      }
+      bodyRows.push(`| ${cells.join(" | ")} |`);
+    }
+
+    return [`## ${suite.name}`, "", header, sep, ...bodyRows].join("\n");
+  };
+
+  return { run, toMarkdown };
 }
 
 // e.g. "threads=4" when paramName is set; "4" otherwise.
@@ -178,10 +229,32 @@ function makeLog(): [HTMLElement, (msg: string) => void] {
   details.className = "log-details";
   const summary = document.createElement("summary");
   summary.textContent = "log";
+
+  const copyBtn = document.createElement("button");
+  copyBtn.type = "button";
+  copyBtn.className = "log-copy";
+  copyBtn.textContent = "copy";
+  summary.appendChild(copyBtn);
+
   const pre = document.createElement("pre");
   pre.className = "log";
   details.appendChild(summary);
   details.appendChild(pre);
+
+  copyBtn.addEventListener("click", async (e) => {
+    // Don't toggle the <details> when clicking the button.
+    e.preventDefault();
+    e.stopPropagation();
+    const original = copyBtn.textContent;
+    try {
+      await navigator.clipboard.writeText(pre.textContent ?? "");
+      copyBtn.textContent = "copied!";
+    } catch {
+      copyBtn.textContent = "copy failed";
+    }
+    setTimeout(() => (copyBtn.textContent = original), 1200);
+  });
+
   const log = (msg: string) => {
     pre.textContent += msg + "\n";
     pre.scrollTop = pre.scrollHeight;
