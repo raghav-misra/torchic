@@ -22,7 +22,7 @@ audioCtx.createBufferSource().buffer = buf;
 ## Current state
 
 All primitives Kokoro needs are implemented across Workers, WASM, and WebGPU,
-verified 
+verified
 via headless parity suites (`scripts/bench.mjs`). Kokoro itself lives
 as a demo under `tests/demos/kokoro/` — the library ships primitives only.
 The module tree instantiates end-to-end at ~104M params (target 82M —
@@ -55,7 +55,3 @@ Not yet wired to real weights.
 - [ ] `Conv1D` on WebGPU via im2col + matmul
 - [ ] BF16 → F32 upcast on the GPU without a CPU round-trip
 - [ ] Bench harness reports RTF = `wall_time / (num_samples / sample_rate)`
-
-## Open questions
-
-None open right now — revisit after the demo review.
