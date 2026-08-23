@@ -5,9 +5,9 @@
 // `upsample=true` inserts a grouped ConvTranspose1d(k=3, s=2) that doubles L.
 // nn.ConvTranspose1d doesn't have `groups` yet — pin down at demo review.
 
-import { Tensor } from "../../frontend/tensor";
-import { Module } from "../../nn/module";
-import { Conv1d, ConvTranspose1d } from "../../nn/layers";
+import { Tensor } from "../../../src/frontend/tensor";
+import { Module } from "../../../src/nn/module";
+import { Conv1d, ConvTranspose1d } from "../../../src/nn/layers";
 import { AdaIN1d } from "./adain";
 
 const SQRT2 = Math.sqrt(2);

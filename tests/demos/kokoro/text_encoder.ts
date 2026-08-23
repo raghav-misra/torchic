@@ -2,9 +2,9 @@
 // LeakyReLU) x depth -> BiLSTM. Kokoro-82M: 512 channels, k=5, depth=3.
 // Ref: https://github.com/yl4579/StyleTTS2/blob/main/models.py
 
-import { Tensor } from "../../frontend/tensor";
-import { Module } from "../../nn/module";
-import { Conv1d, Embedding, BiLSTM, LayerNorm } from "../../nn/layers";
+import { Tensor } from "../../../src/frontend/tensor";
+import { Module } from "../../../src/nn/module";
+import { Conv1d, Embedding, BiLSTM, LayerNorm } from "../../../src/nn/layers";
 
 class ChannelsFirstLayerNorm extends Module {
   ln: LayerNorm;

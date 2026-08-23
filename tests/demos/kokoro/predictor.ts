@@ -5,9 +5,9 @@
 // Reference implementation packs padded sequences for the LSTMs; at inference
 // we always have a single utterance so we skip the pack/pad dance.
 
-import { Tensor } from "../../frontend/tensor";
-import { Module } from "../../nn/module";
-import { BiLSTM, Linear, Conv1d } from "../../nn/layers";
+import { Tensor } from "../../../src/frontend/tensor";
+import { Module } from "../../../src/nn/module";
+import { BiLSTM, Linear, Conv1d } from "../../../src/nn/layers";
 import { AdaLayerNorm } from "./adain";
 import { AdainResBlk1d } from "./resblocks";
 

@@ -1,6 +1,7 @@
-import { init, shutdown, models } from "../../src/index";
-import { defineTest } from "../framework/define";
-import type { RunContext, TestResult } from "../framework/types";
+import { init, shutdown } from "../../../src/index";
+import { Kokoro, countParameters } from "./index";
+import { defineTest } from "../../framework/define";
+import type { RunContext, TestResult } from "../../framework/types";
 
 type Backend = "workers" | "wasm" | "webgpu";
 
@@ -9,13 +10,10 @@ async function runShapes(backend: Backend, { log }: RunContext): Promise<TestRes
   await init({ backend, threadCount, memorySizeMB: 512 });
   try {
     log("constructing Kokoro model tree...");
-    const m = new models.Kokoro();
-    const total = models.countParameters(m);
+    const m = new Kokoro();
+    const total = countParameters(m);
     log(`total parameters: ${total.toLocaleString()} (~${(total / 1e6).toFixed(1)}M)`);
 
-    // Kokoro-82M target. We won't hit exactly 82M because some submodules
-    // (grouped conv, F0 conv-encoder, decoder input concat, weight_norm's
-    // g/v pair) aren't in the skeleton yet — those come at demo-review time.
     const targetLo = 60_000_000;
     const targetHi = 130_000_000;
     log(`sanity target range: [${targetLo.toLocaleString()}, ${targetHi.toLocaleString()}]`);

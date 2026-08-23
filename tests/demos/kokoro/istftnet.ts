@@ -2,11 +2,11 @@
 // that emits magnitude + phase spectrograms, then ISTFTs to audio.
 // Ref: https://github.com/yl4579/StyleTTS2/blob/main/Modules/istftnet.py
 
-import { Tensor } from "../../frontend/tensor";
-import { Module } from "../../nn/module";
-import { Conv1d, ConvTranspose1d } from "../../nn/layers";
+import { Tensor } from "../../../src/frontend/tensor";
+import { Module } from "../../../src/nn/module";
+import { Conv1d, ConvTranspose1d } from "../../../src/nn/layers";
 import type { KokoroISTFTNetConfig } from "./config";
-import { istft, hannWindow } from "../../dsp";
+import { istft, hannWindow } from "../../../src/dsp";
 
 const LEAKY_SLOPE = 0.1;
 

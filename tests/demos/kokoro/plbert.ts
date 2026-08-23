@@ -3,13 +3,13 @@
 // Kokoro-82M: 12 layers, hidden=768, heads=12, ff=2048, max_pos=512.
 // Ref: https://github.com/yl4579/StyleTTS2/blob/main/Utils/PLBERT/util.py
 
-import { Tensor } from "../../frontend/tensor";
-import { Module } from "../../nn/module";
+import { Tensor } from "../../../src/frontend/tensor";
+import { Module } from "../../../src/nn/module";
 import {
   Embedding,
   LayerNorm,
   TransformerEncoderLayer,
-} from "../../nn/layers";
+} from "../../../src/nn/layers";
 
 export interface PLBERTOptions {
   vocabSize: number;

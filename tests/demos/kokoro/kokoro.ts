@@ -2,9 +2,9 @@
 // decoder from StyleTTS 2's build_model(), minus training-only pieces.
 // forward() is a placeholder — wired at demo review with real weights.
 
-import { Tensor } from "../../frontend/tensor";
-import { Module } from "../../nn/module";
-import { Linear } from "../../nn/layers";
+import { Tensor } from "../../../src/frontend/tensor";
+import { Module } from "../../../src/nn/module";
+import { Linear } from "../../../src/nn/layers";
 import { TextEncoder } from "./text_encoder";
 import { ProsodyPredictor } from "./predictor";
 import { ISTFTGenerator } from "./istftnet";

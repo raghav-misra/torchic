@@ -2,9 +2,9 @@
 // through a Linear to (gamma, beta), apply (1 + gamma) * norm(x) + beta.
 // Ref: https://github.com/yl4579/StyleTTS2/blob/main/models.py
 
-import { Tensor } from "../../frontend/tensor";
-import { Module } from "../../nn/module";
-import { Linear, InstanceNorm1d } from "../../nn/layers";
+import { Tensor } from "../../../src/frontend/tensor";
+import { Module } from "../../../src/nn/module";
+import { Linear, InstanceNorm1d } from "../../../src/nn/layers";
 
 export class AdaIN1d extends Module {
   norm: InstanceNorm1d;
