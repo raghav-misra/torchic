@@ -18,6 +18,14 @@ export function sigmoid(x: Tensor): Tensor {
   return x.sigmoid();
 }
 
+export function leaky_relu(x: Tensor, negativeSlope = 0.01): Tensor {
+  return x.leaky_relu(negativeSlope);
+}
+
+export function silu(x: Tensor): Tensor {
+  return x.silu();
+}
+
 export function softmax(x: Tensor, axis = -1): Tensor {
   return x.softmax(axis);
 }

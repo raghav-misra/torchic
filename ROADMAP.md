@@ -33,17 +33,18 @@ Building blocks that already work in the library:
       `nn.Sequential`, `nn.LayerNorm` (composed)
 - [x] `nn.MultiHeadAttention`, `nn.TransformerEncoderLayer`,
       `sinusoidalPositionalEncoding`
-- [x] `nn.functional`: `relu`, `tanh`, `gelu`, `sigmoid`, `softmax`
+- [x] `nn.functional`: `relu`, `tanh`, `gelu`, `sigmoid`, `leaky_relu`, `silu`, `softmax`
 - [x] `optim.SGD`
 - [x] Broadcast materialize path on all three backends
 - [x] Elementwise, matmul, transpose, softmax, sum, sum-axis, embedding fwd+bwd
 - [x] `sqrt` / `rsqrt` primitives (Workers, WASM, WebGPU)
 - [x] `gelu` primitive (Workers, WASM, WebGPU — tanh approximation used by BERT / Kokoro)
 - [x] `sigmoid` primitive (Workers, WASM, WebGPU)
+- [x] `leaky_relu` / `silu` primitives (Workers, WASM, WebGPU)
 - [x] N-D `Tensor.transpose(dim0, dim1)` — zero-copy stride swap
 - [x] Batched matmul `Tensor.bmm()` — Workers, WASM, WebGPU
-- [x] `Conv1d` / `ConvTranspose1d` fwd (Workers only, dilation + padding
-      + stride, matches PyTorch layout)
+- [x] `Conv1d` / `ConvTranspose1d` fwd — Workers, WASM, WebGPU (dilation +
+      padding + stride, matches PyTorch layout)
 - [x] `Tensor.reshape([-1])` auto-materializes non-contiguous inputs
 - [x] Headless bench harness (vite + puppeteer) so all this can be exercised
       from CLI without opening a browser tab
@@ -56,13 +57,13 @@ style vector. What torchic is still missing:
 
 ### Ops
 
-- [x] `Conv1D` fwd (Workers only; WASM/WebGPU port pending)
-- [x] `ConvTranspose1D` fwd (Workers only; WASM/WebGPU port pending)
+- [x] `Conv1D` fwd (Workers, WASM, WebGPU)
+- [x] `ConvTranspose1D` fwd (Workers, WASM, WebGPU)
 - [x] `LayerNorm` — transformer blocks
 - [ ] `GroupNorm` / `InstanceNorm` — decoder normalization
 - [x] `GELU` — transformer feed-forward
 - [x] `sigmoid` — LSTM gates
-- [ ] `LeakyReLU`, `SiLU` — decoder activations
+- [x] `LeakyReLU`, `SiLU` — decoder activations (Workers, WASM, WebGPU)
 - [x] `LSTM` cell (PyTorch-layout weight_ih/weight_hh, composed from
       matmul + sigmoid + tanh + slice; bidirectional/sequence wrapper TBD)
 - [x] Multi-head attention (composed from Linear + BMM + softmax + transpose;

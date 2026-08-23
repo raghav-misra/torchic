@@ -626,6 +626,33 @@ function executeKernel(
     case "SIGMOID_BACKWARD":
       elementwise.sigmoid_backward(inputViews[0], inputViews[1], outputView, start, end);
       break;
+    case "LEAKY_RELU":
+      elementwise.leaky_relu(
+        inputViews[0],
+        outputView,
+        required(params.negativeSlope, "negativeSlope"),
+        start,
+        end,
+        params.shape,
+        params.strides,
+      );
+      break;
+    case "LEAKY_RELU_BACKWARD":
+      elementwise.leaky_relu_backward(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        required(params.negativeSlope, "negativeSlope"),
+        start,
+        end,
+      );
+      break;
+    case "SILU":
+      elementwise.silu(inputViews[0], outputView, start, end, params.shape, params.strides);
+      break;
+    case "SILU_BACKWARD":
+      elementwise.silu_backward(inputViews[0], inputViews[1], outputView, start, end);
+      break;
     case "LOG":
       elementwise.log(inputViews[0], outputView, start, end, params.shape, params.strides);
       break;

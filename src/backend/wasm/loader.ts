@@ -104,6 +104,31 @@ export interface KernelExports {
     end: number,
   ): void;
 
+  leaky_relu(
+    aPtr: number,
+    outPtr: number,
+    negativeSlope: number,
+    start: number,
+    end: number,
+  ): void;
+  leaky_relu_backward(
+    inputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    negativeSlope: number,
+    start: number,
+    end: number,
+  ): void;
+
+  silu(aPtr: number, outPtr: number, start: number, end: number): void;
+  silu_backward(
+    inputPtr: number,
+    gradOutputPtr: number,
+    gradInputPtr: number,
+    start: number,
+    end: number,
+  ): void;
+
   fill(outPtr: number, val: number, start: number, end: number): void;
   copy(inputPtr: number, outPtr: number, start: number, end: number): void;
 
@@ -186,6 +211,43 @@ export interface KernelExports {
     innerSize: number,
     start: number,
     end: number,
+  ): void;
+
+  conv1d(
+    inputPtr: number,
+    weightPtr: number,
+    biasPtr: number,
+    outPtr: number,
+    hasBias: number,
+    bTotal: number,
+    cIn: number,
+    lIn: number,
+    cOut: number,
+    k: number,
+    lOut: number,
+    stride: number,
+    pad: number,
+    dil: number,
+    startBatch: number,
+    endBatch: number,
+  ): void;
+  conv_transpose1d(
+    inputPtr: number,
+    weightPtr: number,
+    biasPtr: number,
+    outPtr: number,
+    hasBias: number,
+    bTotal: number,
+    cIn: number,
+    lIn: number,
+    cOut: number,
+    k: number,
+    lOut: number,
+    stride: number,
+    pad: number,
+    dil: number,
+    startBatch: number,
+    endBatch: number,
   ): void;
 }
 

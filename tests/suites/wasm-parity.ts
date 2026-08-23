@@ -28,6 +28,11 @@ interface Results {
   sqrt: Float32Array;
   rsqrt: Float32Array;
   sigmoid: Float32Array;
+  leaky_relu: Float32Array;
+  silu: Float32Array;
+  conv1d_basic: Float32Array;
+  conv1d_stride_pad: Float32Array;
+  conv_transpose1d_basic: Float32Array;
 }
 
 async function runOps(backend: Backend, threads: number): Promise<Results> {
@@ -72,6 +77,24 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
   // End-to-end makemore-shaped chain that combines matmul + broadcast add.
   const chain = await mmA.matmul(mmB).add(rowBias).toArray();
 
+  // Conv1d inputs — shape mirrors an early Kokoro decoder conv: [B, C_in, L].
+  const convIn = Tensor.fromData(
+    Array.from({ length: 2 * 4 * 32 }, (_, i) => Math.sin(i * 0.07)),
+    [2, 4, 32],
+  );
+  const convW = Tensor.fromData(
+    Array.from({ length: 8 * 4 * 5 }, (_, i) => Math.cos(i * 0.11) * 0.1),
+    [8, 4, 5],
+  );
+  const convB = Tensor.fromData(
+    Array.from({ length: 8 }, (_, i) => Math.sin(i * 0.31) * 0.05),
+    [8],
+  );
+  const convTw = Tensor.fromData(
+    Array.from({ length: 4 * 8 * 5 }, (_, i) => Math.cos(i * 0.09) * 0.1),
+    [4, 8, 5],
+  );
+
   const results = {
     add: await a.add(b).toArray(),
     sub: await a.sub(b).toArray(),
@@ -96,6 +119,15 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
     sqrt: await a.mul(a).sqrt().toArray(), // avoid negative inputs
     rsqrt: await a.mul(a).add(Tensor.fromData([1e-3])).rsqrt().toArray(),
     sigmoid: await a.sigmoid().toArray(),
+    leaky_relu: await a.leaky_relu(0.1).toArray(),
+    silu: await a.silu().toArray(),
+    conv1d_basic: await convIn.conv1d(convW, convB, {}).toArray(),
+    conv1d_stride_pad: await convIn
+      .conv1d(convW, convB, { stride: 2, padding: 2 })
+      .toArray(),
+    conv_transpose1d_basic: await convIn
+      .convTranspose1d(convTw, null, { stride: 2, padding: 1, outputPadding: 1 })
+      .toArray(),
   };
 
   shutdown();
@@ -140,6 +172,11 @@ const TOLERANCES: Record<keyof Results, number> = {
   sqrt: 1e-5,
   rsqrt: 1e-5,
   sigmoid: 1e-6,
+  leaky_relu: 1e-6,
+  silu: 1e-5,
+  conv1d_basic: 1e-5,
+  conv1d_stride_pad: 1e-5,
+  conv_transpose1d_basic: 1e-5,
 };
 
 async function runParity(threads: number, { log }: RunContext) {

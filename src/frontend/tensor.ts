@@ -329,6 +329,29 @@ export class Tensor {
     return this.runUnaryOp("SIGMOID");
   }
 
+  leaky_relu(negativeSlope = 0.01): Tensor {
+    const outId = getDispatcher().nextTensorId();
+    const size = this.numElements() * 4;
+    getDispatcher().allocate(outId, size);
+    getDispatcher().runOp("LEAKY_RELU", [this.id], outId, {
+      shape: this.shape,
+      strides: this.strides,
+      negativeSlope,
+    });
+    const shouldGrad = GradMode.enabled && this.requiresGrad;
+    const out = new Tensor(outId, this.shape, shouldGrad);
+    if (shouldGrad) {
+      out.op = "LEAKY_RELU";
+      out.prev = [this];
+      out.params = { negativeSlope };
+    }
+    return out;
+  }
+
+  silu(): Tensor {
+    return this.runUnaryOp("SILU");
+  }
+
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
       throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);
@@ -740,6 +763,24 @@ export class Tensor {
           const gradId = getDispatcher().nextTensorId();
           getDispatcher().allocate(gradId, a.numElements() * 4);
           getDispatcher().runOp("SIGMOID_BACKWARD", [v.id, v.grad.id], gradId);
+          a.addGrad(new Tensor(gradId, a.shape, false));
+        }
+      } else if (v.op === "LEAKY_RELU") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          const gradId = getDispatcher().nextTensorId();
+          getDispatcher().allocate(gradId, a.numElements() * 4);
+          getDispatcher().runOp("LEAKY_RELU_BACKWARD", [a.id, v.grad.id], gradId, {
+            negativeSlope: v.params.negativeSlope ?? 0.01,
+          });
+          a.addGrad(new Tensor(gradId, a.shape, false));
+        }
+      } else if (v.op === "SILU") {
+        const [a] = v.prev;
+        if (a.requiresGrad) {
+          const gradId = getDispatcher().nextTensorId();
+          getDispatcher().allocate(gradId, a.numElements() * 4);
+          getDispatcher().runOp("SILU_BACKWARD", [a.id, v.grad.id], gradId);
           a.addGrad(new Tensor(gradId, a.shape, false));
         }
       } else if (v.op === "LOG") {

@@ -330,6 +330,8 @@ const BINARY_ELEMENTWISE = new Set([
   "SQRT_BACKWARD",
   "RSQRT_BACKWARD",
   "SIGMOID_BACKWARD",
+  "LEAKY_RELU_BACKWARD",
+  "SILU_BACKWARD",
   "ADD_SCALAR_TENSOR",
 ]);
 
@@ -343,6 +345,8 @@ const STRIDED_UNARY = new Set([
   "SQRT",
   "RSQRT",
   "SIGMOID",
+  "LEAKY_RELU",
+  "SILU",
   "COPY",
 ]);
 
@@ -588,6 +592,45 @@ function executeKernel(
     return;
   }
 
+  if (op === "CONV1D" || op === "CONV_TRANSPOSE_1D") {
+    const B = required(params.batchCount, "batchCount");
+    const Cin = required(params.Cin, "Cin");
+    const Lin = required(params.Lin, "Lin");
+    const Cout = required(params.Cout, "Cout");
+    const K = required(params.K, "K");
+    const Lout = required(params.Lout, "Lout");
+    const stride = required(params.stride, "stride");
+    const padding = required(params.padding, "padding");
+    const dilation = required(params.dilation, "dilation");
+    const hasBias = !!params.hasBias;
+    const biasOffset = hasBias ? inputs[2].offset : 0;
+    const perWorker = Math.ceil(B / totalWorkers);
+    const startBatch = workerIndex * perWorker;
+    const endBatch = Math.min(startBatch + perWorker, B);
+    if (startBatch >= B) return;
+
+    const fn = op === "CONV1D" ? exports.conv1d : exports.conv_transpose1d;
+    fn(
+      inputs[0].offset,
+      inputs[1].offset,
+      biasOffset,
+      output.offset,
+      hasBias ? 1 : 0,
+      B,
+      Cin,
+      Lin,
+      Cout,
+      K,
+      Lout,
+      stride,
+      padding,
+      dilation,
+      startBatch,
+      endBatch,
+    );
+    return;
+  }
+
   if (op === "SOFTMAX" || op === "SOFTMAX_BACKWARD" || op === "TRANSPOSE") {
     const m = required(params.m, "m");
     const n = required(params.n, "n");
@@ -790,6 +833,39 @@ function executeKernel(
       return;
     case "SIGMOID_BACKWARD":
       exports.sigmoid_backward(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        start,
+        end,
+      );
+      return;
+    case "LEAKY_RELU":
+      stridedUnary();
+      exports.leaky_relu(
+        inputs[0].offset,
+        output.offset,
+        required(params.negativeSlope, "negativeSlope"),
+        start,
+        end,
+      );
+      return;
+    case "LEAKY_RELU_BACKWARD":
+      exports.leaky_relu_backward(
+        inputs[0].offset,
+        inputs[1].offset,
+        output.offset,
+        required(params.negativeSlope, "negativeSlope"),
+        start,
+        end,
+      );
+      return;
+    case "SILU":
+      stridedUnary();
+      exports.silu(inputs[0].offset, output.offset, start, end);
+      return;
+    case "SILU_BACKWARD":
+      exports.silu_backward(
         inputs[0].offset,
         inputs[1].offset,
         output.offset,

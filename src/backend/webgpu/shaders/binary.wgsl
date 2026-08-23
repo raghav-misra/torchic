@@ -8,6 +8,7 @@ struct BinaryU {
   p2: u32,
   start: u32,
   end: u32,
+  param0: f32, // op-specific scalar (e.g. LeakyReLU negative_slope)
 }
 
 @group(0) @binding(0) var<storage, read_write> heap: array<f32>;
@@ -102,6 +103,27 @@ fn sigmoid_backward(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (i >= u.end) { return; }
   let y = heap[u.p0 + i];
   heap[u.p2 + i] = heap[u.p1 + i] * y * (1.0 - y);
+}
+
+// leaky_relu_backward: p0=input, p1=grad_output, p2=grad_input, param0=slope.
+@compute @workgroup_size(256)
+fn leaky_relu_backward(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  let x = heap[u.p0 + i];
+  let s = select(u.param0, 1.0, x >= 0.0);
+  heap[u.p2 + i] = heap[u.p1 + i] * s;
+}
+
+// silu_backward: p0=input, p1=grad_output, p2=grad_input.
+// d/dx (x*sigmoid(x)) = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+@compute @workgroup_size(256)
+fn silu_backward(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  let x = heap[u.p0 + i];
+  let s = 1.0 / (1.0 + exp(-x));
+  heap[u.p2 + i] = heap[u.p1 + i] * s * (1.0 + x * (1.0 - s));
 }
 
 // add_scalar_tensor: p0=a (elementwise), p1=scalar (length 1), p2=out.

@@ -2,7 +2,7 @@ import { Tensor, init, shutdown, nn } from "../../src/index";
 import { defineTest } from "../framework/define";
 import type { RunContext, TestResult } from "../framework/types";
 
-type Backend = "workers";
+type Backend = "workers" | "wasm" | "webgpu";
 
 // Scalar JS reference implementations for verification.
 function refConv1d(
@@ -88,8 +88,9 @@ function fill(n: number, seed: number): number[] {
   return r;
 }
 
-async function runConv(_: Backend, { log }: RunContext): Promise<TestResult> {
-  await init({ backend: "workers", threadCount: 4, memorySizeMB: 32 });
+async function runConv(backend: Backend, { log }: RunContext): Promise<TestResult> {
+  const threadCount = backend === "webgpu" ? 1 : 4;
+  await init({ backend, threadCount, memorySizeMB: 32 });
   try {
     const checks: { name: string; ok: boolean; detail: string }[] = [];
     const check = (n: string, ok: boolean, d = "") => checks.push({ name: n, ok, detail: d });
@@ -229,10 +230,10 @@ async function runConv(_: Backend, { log }: RunContext): Promise<TestResult> {
 }
 
 defineTest<Backend>({
-  name: "Conv1D + ConvTranspose1D: correctness (workers)",
+  name: "Conv1D + ConvTranspose1D: cross-backend correctness",
   paramName: "backend",
-  params: ["workers"],
+  params: ["workers", "wasm", "webgpu"],
   description:
-    "Direct-loop 1-D conv and transposed conv on Workers backend, checked against a scalar JS reference. WASM/WebGPU ports pending.",
+    "1-D conv and transposed conv on all three backends, checked against a scalar JS reference.",
   runner: runConv,
 });

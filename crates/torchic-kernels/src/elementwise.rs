@@ -303,6 +303,70 @@ pub unsafe extern "C" fn sigmoid_backward(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn leaky_relu(
+    a: *const f32,
+    out: *mut f32,
+    negative_slope: f32,
+    start: u32,
+    end: u32,
+) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let x = *a.add(i);
+        *out.add(i) = if x >= 0.0 { x } else { x * negative_slope };
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn leaky_relu_backward(
+    input: *const f32,
+    grad_output: *const f32,
+    grad_input: *mut f32,
+    negative_slope: f32,
+    start: u32,
+    end: u32,
+) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let x = *input.add(i);
+        let s = if x >= 0.0 { 1.0 } else { negative_slope };
+        *grad_input.add(i) = *grad_output.add(i) * s;
+    }
+}
+
+// SiLU / Swish: y = x * sigmoid(x)
+#[no_mangle]
+pub unsafe extern "C" fn silu(a: *const f32, out: *mut f32, start: u32, end: u32) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let x = *a.add(i);
+        let s = 1.0 / (1.0 + libm::expf(-x));
+        *out.add(i) = x * s;
+    }
+}
+
+// d/dx (x*sigmoid(x)) = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+#[no_mangle]
+pub unsafe extern "C" fn silu_backward(
+    input: *const f32,
+    grad_output: *const f32,
+    grad_input: *mut f32,
+    start: u32,
+    end: u32,
+) {
+    let start = start as usize;
+    let end = end as usize;
+    for i in start..end {
+        let x = *input.add(i);
+        let s = 1.0 / (1.0 + libm::expf(-x));
+        *grad_input.add(i) = *grad_output.add(i) * s * (1.0 + x * (1.0 - s));
+    }
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn fill(out: *mut f32, val: f32, start: u32, end: u32) {
     let start = start as usize;
     let end = end as usize;

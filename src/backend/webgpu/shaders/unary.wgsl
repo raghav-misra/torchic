@@ -5,6 +5,7 @@ struct UnaryU {
   output_off: u32,
   start: u32,
   end: u32,
+  param0: f32, // op-specific scalar (e.g. LeakyReLU negative_slope)
 }
 
 @group(0) @binding(0) var<storage, read_write> heap: array<f32>;
@@ -76,6 +77,22 @@ fn sigmoid(@builtin(global_invocation_id) gid: vec3<u32>) {
   if (i >= u.end) { return; }
   let x = heap[u.input_off + i];
   heap[u.output_off + i] = 1.0 / (1.0 + exp(-x));
+}
+
+@compute @workgroup_size(256)
+fn leaky_relu(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  let x = heap[u.input_off + i];
+  heap[u.output_off + i] = select(x * u.param0, x, x >= 0.0);
+}
+
+@compute @workgroup_size(256)
+fn silu(@builtin(global_invocation_id) gid: vec3<u32>) {
+  let i = u.start + gid.x;
+  if (i >= u.end) { return; }
+  let x = heap[u.input_off + i];
+  heap[u.output_off + i] = x / (1.0 + exp(-x));
 }
 
 @compute @workgroup_size(256)

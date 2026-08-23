@@ -155,6 +155,8 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "EMBEDDING_BACKWARD")
       return this.dispatchEmbeddingBackward(pipeline, im, outMeta, params);
     if (op === "SUM_AXIS") return this.dispatchSumAxis(pipeline, im, outMeta, params);
+    if (op === "CONV1D" || op === "CONV_TRANSPOSE_1D")
+      return this.dispatchConv1d(pipeline, im, outMeta, params);
 
     // Elementwise families: materialize any non-contiguous operand into scratch,
     // then dispatch the contiguous fast path.
@@ -187,6 +189,12 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "SQRT_BACKWARD" || op === "RSQRT_BACKWARD" || op === "SIGMOID_BACKWARD") {
       return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
     }
+    if (op === "SILU_BACKWARD") {
+      return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
+    }
+    if (op === "LEAKY_RELU_BACKWARD") {
+      return this.dispatchBinaryWithParam(pipeline, im[0], im[1], outMeta, required(params.negativeSlope, "negativeSlope"));
+    }
     if (
       op === "NEG" ||
       op === "RELU" ||
@@ -197,12 +205,19 @@ export class WebGPUDispatcher implements Dispatcher {
       op === "SQRT" ||
       op === "RSQRT" ||
       op === "SIGMOID" ||
+      op === "SILU" ||
       op === "COPY"
     ) {
       const inA =
         op === "COPY" ? { meta: im[0], free: NOOP_FREE }
                       : this.maybeMaterialize(im[0], params.shape, params.strides);
       this.dispatchUnary(pipeline, inA.meta, outMeta);
+      inA.free();
+      return;
+    }
+    if (op === "LEAKY_RELU") {
+      const inA = this.maybeMaterialize(im[0], params.shape, params.strides);
+      this.dispatchUnaryWithParam(pipeline, inA.meta, outMeta, required(params.negativeSlope, "negativeSlope"));
       inA.free();
       return;
     }
@@ -359,6 +374,40 @@ export class WebGPUDispatcher implements Dispatcher {
     this.encodeAndSubmit(pipeline, u, Math.ceil(len / ELEMENTWISE_TILE), 1);
   }
 
+  private dispatchUnaryWithParam(
+    pipeline: GPUComputePipeline,
+    input: TensorMetadata,
+    out: TensorMetadata,
+    param0: number,
+  ) {
+    const len = out.size / 4;
+    const u = new Uint32Array(5);
+    u[0] = input.offset >>> 2;
+    u[1] = out.offset >>> 2;
+    u[2] = 0;
+    u[3] = len;
+    new Float32Array(u.buffer)[4] = param0;
+    this.encodeAndSubmit(pipeline, u, Math.ceil(len / ELEMENTWISE_TILE), 1);
+  }
+
+  private dispatchBinaryWithParam(
+    pipeline: GPUComputePipeline,
+    a: TensorMetadata,
+    b: TensorMetadata,
+    out: TensorMetadata,
+    param0: number,
+  ) {
+    const len = out.size / 4;
+    const u = new Uint32Array(6);
+    u[0] = a.offset >>> 2;
+    u[1] = b.offset >>> 2;
+    u[2] = out.offset >>> 2;
+    u[3] = 0;
+    u[4] = len;
+    new Float32Array(u.buffer)[5] = param0;
+    this.encodeAndSubmit(pipeline, u, Math.ceil(len / ELEMENTWISE_TILE), 1);
+  }
+
   private dispatchFill(pipeline: GPUComputePipeline, out: TensorMetadata, params: OpParams) {
     const len = out.size / 4;
     const val = required(params.value, "value");
@@ -459,6 +508,43 @@ export class WebGPUDispatcher implements Dispatcher {
       innerSize,
     ]);
     this.encodeAndSubmit(pipeline, u, Math.ceil(count / 64), 1);
+  }
+
+  private dispatchConv1d(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const B = required(params.batchCount, "batchCount");
+    const Cin = required(params.Cin, "Cin");
+    const Lin = required(params.Lin, "Lin");
+    const Cout = required(params.Cout, "Cout");
+    const K = required(params.K, "K");
+    const Lout = required(params.Lout, "Lout");
+    const stride = required(params.stride, "stride");
+    const padding = required(params.padding, "padding");
+    const dilation = required(params.dilation, "dilation");
+    const hasBias = !!params.hasBias;
+    // ConvU layout matches src/backend/webgpu/shaders/conv.wgsl.
+    const u = new Uint32Array(14);
+    u[0] = inputs[0].offset >>> 2;
+    u[1] = inputs[1].offset >>> 2;
+    u[2] = hasBias ? inputs[2].offset >>> 2 : 0;
+    u[3] = out.offset >>> 2;
+    u[4] = hasBias ? 1 : 0;
+    u[5] = B;
+    u[6] = Cin;
+    u[7] = Lin;
+    u[8] = Cout;
+    u[9] = K;
+    u[10] = Lout;
+    const iview = new Int32Array(u.buffer);
+    iview[11] = stride;
+    iview[12] = padding;
+    iview[13] = dilation;
+    const total = B * Cout * Lout;
+    this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
   }
 
   private dispatchEmbedding(

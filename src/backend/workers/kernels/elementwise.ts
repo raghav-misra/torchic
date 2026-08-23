@@ -534,3 +534,76 @@ export function sigmoid_backward(
     gradInput[i] = gradOutput[i] * y * (1 - y);
   }
 }
+
+export function leaky_relu(
+  a: Float32Array,
+  out: Float32Array,
+  negativeSlope: number,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  if (shape && strides) {
+    for (let i = start; i < end; i++) {
+      const x = stridedRead(a, i, shape, strides);
+      out[i] = x >= 0 ? x : x * negativeSlope;
+    }
+  } else {
+    for (let i = start; i < end; i++) {
+      const x = a[i];
+      out[i] = x >= 0 ? x : x * negativeSlope;
+    }
+  }
+}
+
+export function leaky_relu_backward(
+  input: Float32Array,
+  gradOutput: Float32Array,
+  gradInput: Float32Array,
+  negativeSlope: number,
+  start: number,
+  end: number,
+) {
+  for (let i = start; i < end; i++) {
+    const x = input[i];
+    gradInput[i] = gradOutput[i] * (x >= 0 ? 1 : negativeSlope);
+  }
+}
+
+// SiLU / Swish: y = x * sigmoid(x)
+export function silu(
+  a: Float32Array,
+  out: Float32Array,
+  start: number,
+  end: number,
+  shape?: number[],
+  strides?: number[],
+) {
+  if (shape && strides) {
+    for (let i = start; i < end; i++) {
+      const x = stridedRead(a, i, shape, strides);
+      out[i] = x / (1 + Math.exp(-x));
+    }
+  } else {
+    for (let i = start; i < end; i++) {
+      const x = a[i];
+      out[i] = x / (1 + Math.exp(-x));
+    }
+  }
+}
+
+// d/dx (x * sigmoid(x)) = sigmoid(x) * (1 + x * (1 - sigmoid(x)))
+export function silu_backward(
+  input: Float32Array,
+  gradOutput: Float32Array,
+  gradInput: Float32Array,
+  start: number,
+  end: number,
+) {
+  for (let i = start; i < end; i++) {
+    const x = input[i];
+    const s = 1 / (1 + Math.exp(-x));
+    gradInput[i] = gradOutput[i] * s * (1 + x * (1 - s));
+  }
+}

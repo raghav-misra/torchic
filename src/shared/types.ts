@@ -33,6 +33,8 @@ export interface OpParams {
   padding?: number;
   dilation?: number;
   hasBias?: boolean;
+  // Activation params.
+  negativeSlope?: number;
 }
 
 export interface BufferRegion {

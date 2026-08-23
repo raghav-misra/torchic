@@ -201,8 +201,15 @@ async function runSuite(suiteQuery, paramFilter, opts) {
     await waitForServer(`http://localhost:${port}/headless.html`, 30000);
     const { default: puppeteer } = await import("puppeteer");
     const browser = await puppeteer.launch({
-      headless: opts.headed ? false : "shell",
-      args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan"],
+      // "shell" is the stripped chrome-headless-shell (no WebGPU support).
+      // `true` uses the full new-headless Chrome, which honors the WebGPU flags.
+      headless: opts.headed ? false : true,
+      args: [
+        "--enable-unsafe-webgpu",
+        "--enable-features=Vulkan",
+        "--use-vulkan=swiftshader",
+        "--enable-webgpu-developer-features",
+      ],
     });
     const page = await browser.newPage();
 

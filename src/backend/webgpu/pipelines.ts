@@ -8,6 +8,7 @@ import materializeWgsl from "./shaders/materialize.wgsl?raw";
 import reductionsWgsl from "./shaders/reductions.wgsl?raw";
 import randnWgsl from "./shaders/randn.wgsl?raw";
 import embeddingWgsl from "./shaders/embedding.wgsl?raw";
+import convWgsl from "./shaders/conv.wgsl?raw";
 
 const MODULE_SOURCE: Record<string, string> = {
   binary: binaryWgsl,
@@ -20,6 +21,7 @@ const MODULE_SOURCE: Record<string, string> = {
   reductions: reductionsWgsl,
   randn: randnWgsl,
   embedding: embeddingWgsl,
+  conv: convWgsl,
 };
 
 // Op → (shader module, entry point). Entry points in WGSL can't shadow certain
@@ -38,6 +40,8 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   SQRT_BACKWARD: { module: "binary", entry: "sqrt_backward" },
   RSQRT_BACKWARD: { module: "binary", entry: "rsqrt_backward" },
   SIGMOID_BACKWARD: { module: "binary", entry: "sigmoid_backward" },
+  LEAKY_RELU_BACKWARD: { module: "binary", entry: "leaky_relu_backward" },
+  SILU_BACKWARD: { module: "binary", entry: "silu_backward" },
   ADD_SCALAR_TENSOR: { module: "binary", entry: "add_scalar_tensor" },
 
   NEG: { module: "unary", entry: "neg" },
@@ -49,6 +53,8 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   SQRT: { module: "unary", entry: "sqrt_" },
   RSQRT: { module: "unary", entry: "rsqrt_" },
   SIGMOID: { module: "unary", entry: "sigmoid" },
+  LEAKY_RELU: { module: "unary", entry: "leaky_relu" },
+  SILU: { module: "unary", entry: "silu" },
   COPY: { module: "unary", entry: "copy_" },
 
   FILL: { module: "fill", entry: "main" },
@@ -62,6 +68,8 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   RANDN: { module: "randn", entry: "main" },
   EMBEDDING: { module: "embedding", entry: "embedding" },
   EMBEDDING_BACKWARD: { module: "embedding", entry: "embedding_backward" },
+  CONV1D: { module: "conv", entry: "conv1d" },
+  CONV_TRANSPOSE_1D: { module: "conv", entry: "conv_transpose1d" },
 };
 
 export interface Pipelines {
