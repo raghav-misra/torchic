@@ -1,4 +1,4 @@
-"""
+r"""
 Convert Kokoro-82M .pth checkpoint (torch pickle) to .safetensors.
 
 Kokoro's checkpoint is a dict of {module_name: sub_state_dict} — one entry per
