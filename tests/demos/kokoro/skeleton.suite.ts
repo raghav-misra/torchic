@@ -35,6 +35,12 @@ async function runShapes(backend: Backend, { log }: RunContext): Promise<TestRes
     // checkpoint. These are the ones we need to match exactly.
     const spot: string[] = [
       "bert.embeddings.word_embeddings.weight",
+      "bert.embeddings.LayerNorm.weight",
+      "bert.encoder.embedding_hidden_mapping_in.weight",
+      "bert.encoder.albert_layer_groups.0.albert_layers.0.attention.query.weight",
+      "bert.encoder.albert_layer_groups.0.albert_layers.0.ffn.weight",
+      "bert.encoder.albert_layer_groups.0.albert_layers.0.full_layer_layer_norm.weight",
+      "bert.pooler.weight",
       "bert_encoder.weight",
       "text_encoder.embedding.weight",
       "text_encoder.lstm.fwd.weight_ih",
