@@ -7,6 +7,7 @@ import transposeWgsl from "./shaders/transpose.wgsl?raw";
 import materializeWgsl from "./shaders/materialize.wgsl?raw";
 import reductionsWgsl from "./shaders/reductions.wgsl?raw";
 import randnWgsl from "./shaders/randn.wgsl?raw";
+import embeddingWgsl from "./shaders/embedding.wgsl?raw";
 
 const MODULE_SOURCE: Record<string, string> = {
   binary: binaryWgsl,
@@ -18,6 +19,7 @@ const MODULE_SOURCE: Record<string, string> = {
   materialize: materializeWgsl,
   reductions: reductionsWgsl,
   randn: randnWgsl,
+  embedding: embeddingWgsl,
 };
 
 // Op → (shader module, entry point). Entry points in WGSL can't shadow certain
@@ -48,7 +50,10 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   MATERIALIZE: { module: "materialize", entry: "main" },
   SUM_PARTIAL: { module: "reductions", entry: "sum_partial" },
   SUM_FINAL: { module: "reductions", entry: "sum_final" },
+  SUM_AXIS: { module: "reductions", entry: "sum_axis" },
   RANDN: { module: "randn", entry: "main" },
+  EMBEDDING: { module: "embedding", entry: "embedding" },
+  EMBEDDING_BACKWARD: { module: "embedding", entry: "embedding_backward" },
 };
 
 export interface Pipelines {

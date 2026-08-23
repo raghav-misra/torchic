@@ -140,18 +140,29 @@ export class WebGPUDispatcher implements Dispatcher {
       return this.dispatchSoftmax(pipeline, op, im, outMeta, params);
     if (op === "FILL") return this.dispatchFill(pipeline, outMeta, params);
     if (op === "RANDN") return this.dispatchRandn(pipeline, outMeta);
+    if (op === "EMBEDDING") return this.dispatchEmbedding(pipeline, im, outMeta, params);
+    if (op === "EMBEDDING_BACKWARD")
+      return this.dispatchEmbeddingBackward(pipeline, im, outMeta, params);
+    if (op === "SUM_AXIS") return this.dispatchSumAxis(pipeline, im, outMeta, params);
 
-    // Elementwise families: contiguous fast path only.
+    // Elementwise families: materialize any non-contiguous operand into scratch,
+    // then dispatch the contiguous fast path.
     if (op === "ADD" || op === "SUB" || op === "MUL" || op === "DIV") {
-      this.assertContigBinary(params, op);
-      return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
+      const inA = this.maybeMaterialize(im[0], params.shape, params.stridesA);
+      const inB = this.maybeMaterialize(im[1], params.shape, params.stridesB);
+      this.dispatchBinary(pipeline, inA.meta, inB.meta, outMeta);
+      inA.free();
+      inB.free();
+      return;
     }
     if (op === "ADD_SCALAR_TENSOR") {
       return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
     }
     if (op === "RELU_BACKWARD") {
-      this.assertContigUnary(params, op);
-      return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
+      const inA = this.maybeMaterialize(im[0], params.shape, params.strides);
+      this.dispatchBinary(pipeline, inA.meta, im[1], outMeta);
+      inA.free();
+      return;
     }
     if (op === "TANH_BACKWARD") {
       return this.dispatchBinary(pipeline, im[0], im[1], outMeta);
@@ -164,22 +175,59 @@ export class WebGPUDispatcher implements Dispatcher {
       op === "TANH" ||
       op === "COPY"
     ) {
-      if (op !== "COPY") this.assertContigUnary(params, op);
-      return this.dispatchUnary(pipeline, im[0], outMeta);
+      const inA =
+        op === "COPY" ? { meta: im[0], free: () => {} }
+                      : this.maybeMaterialize(im[0], params.shape, params.strides);
+      this.dispatchUnary(pipeline, inA.meta, outMeta);
+      inA.free();
+      return;
     }
 
     throw new Error(`WebGPU backend: op '${op}' dispatch missing`);
   }
 
-  private assertContigBinary(params: OpParams, op: string) {
-    if (!isContiguous(params.shape, params.stridesA) || !isContiguous(params.shape, params.stridesB)) {
-      throw new Error(`WebGPU backend: broadcasted ${op} not yet ported`);
+  // Returns the operand as-is if contiguous, otherwise a freshly materialized scratch
+  // with a `free()` closure to return it to the allocator once the dispatch is encoded.
+  private maybeMaterialize(
+    src: TensorMetadata,
+    shape: number[] | undefined,
+    strides: number[] | undefined,
+  ): { meta: TensorMetadata; free: () => void } {
+    if (!shape || !strides || isContiguous(shape, strides)) {
+      return { meta: src, free: () => {} };
     }
+    const alloc = this.allocator!;
+    const outSize = shape.reduce((a, b) => a * b, 1) * 4;
+    const outOffset = alloc.allocate(outSize);
+    this.encodeMaterialize(src, { offset: outOffset, size: outSize, isView: false }, shape, strides);
+    return {
+      meta: { offset: outOffset, size: outSize, isView: false },
+      // Queue-ordered: subsequent allocs at this offset run after the encoded read.
+      free: () => alloc.free(outOffset, outSize),
+    };
   }
-  private assertContigUnary(params: OpParams, op: string) {
-    if (!isContiguous(params.shape, params.strides)) {
-      throw new Error(`WebGPU backend: strided ${op} not yet ported`);
+
+  private encodeMaterialize(
+    src: TensorMetadata,
+    out: TensorMetadata,
+    shape: number[],
+    strides: number[],
+  ) {
+    if (shape.length > 8) {
+      throw new Error(`WebGPU MATERIALIZE supports at most 8 dims (got ${shape.length})`);
     }
+    const pipeline = this.pipelines!.byOp.get("MATERIALIZE")!;
+    const count = out.size / 4;
+    const u = new Uint32Array(20);
+    u[0] = src.offset >>> 2;
+    u[1] = out.offset >>> 2;
+    u[2] = shape.length;
+    u[3] = count;
+    for (let i = 0; i < shape.length; i++) {
+      u[4 + i] = shape[i];
+      u[12 + i] = strides[i];
+    }
+    this.encodeAndSubmit(pipeline, u, Math.ceil(count / ELEMENTWISE_TILE), 1);
   }
 
   private dispatchMatmul(
@@ -273,24 +321,9 @@ export class WebGPUDispatcher implements Dispatcher {
   }
 
   private dispatchMaterialize(inputs: TensorMetadata[], out: TensorMetadata, params: OpParams) {
-    const pipeline = this.pipelines!.byOp.get("MATERIALIZE")!;
     const shape = required(params.shape, "shape");
     const strides = required(params.strides, "strides");
-    if (shape.length > 8) {
-      throw new Error(`WebGPU MATERIALIZE supports at most 8 dims (got ${shape.length})`);
-    }
-    const count = out.size / 4;
-    // Uniform layout: [in_off, out_off, ndim, count, shape[0..8], strides[0..8]] = 20 u32
-    const u = new Uint32Array(20);
-    u[0] = inputs[0].offset >>> 2;
-    u[1] = out.offset >>> 2;
-    u[2] = shape.length;
-    u[3] = count;
-    for (let i = 0; i < shape.length; i++) {
-      u[4 + i] = shape[i];
-      u[12 + i] = strides[i];
-    }
-    this.encodeAndSubmit(pipeline, u, Math.ceil(count / ELEMENTWISE_TILE), 1);
+    this.encodeMaterialize(inputs[0], out, shape, strides);
   }
 
   private dispatchSum(inputs: TensorMetadata[], out: TensorMetadata) {
@@ -312,6 +345,71 @@ export class WebGPUDispatcher implements Dispatcher {
 
     // Free is safe: subsequent uses of tempOffset are queue-ordered after both dispatches.
     alloc.free(tempOffset, tempSize);
+  }
+
+  private dispatchSumAxis(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const shape = required(params.shape, "shape");
+    const axis = required(params.axis, "axis");
+    const axisSize = shape[axis];
+    let innerSize = 1;
+    for (let i = axis + 1; i < shape.length; i++) innerSize *= shape[i];
+    const count = out.size / 4;
+    // SumU layout: [input_off, output_off, count, num_partials, axis_size, inner_size]
+    const u = new Uint32Array([
+      inputs[0].offset >>> 2,
+      out.offset >>> 2,
+      count,
+      0,
+      axisSize,
+      innerSize,
+    ]);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(count / 64), 1);
+  }
+
+  private dispatchEmbedding(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const embeddingDim = required(params.embeddingDim, "embeddingDim");
+    const count = out.size / 4;
+    // EmbeddingU: [buf_w, buf_i, buf_o, embedding_dim, count, num_indices]
+    const u = new Uint32Array([
+      inputs[0].offset >>> 2,
+      inputs[1].offset >>> 2,
+      out.offset >>> 2,
+      embeddingDim,
+      count,
+      0,
+    ]);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(count / ELEMENTWISE_TILE), 1);
+  }
+
+  private dispatchEmbeddingBackward(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const embeddingDim = required(params.embeddingDim, "embeddingDim");
+    const count = out.size / 4;
+    const numIndices = inputs[0].size / 4;
+    // Vocab-major: buf_w = weights_grad (out), buf_i = indices, buf_o = output_grad
+    const u = new Uint32Array([
+      out.offset >>> 2,
+      inputs[0].offset >>> 2,
+      inputs[1].offset >>> 2,
+      embeddingDim,
+      count,
+      numIndices,
+    ]);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(count / 64), 1);
   }
 
   private encodeAndSubmit(
