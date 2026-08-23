@@ -602,6 +602,7 @@ function executeKernel(
     const stride = required(params.stride, "stride");
     const padding = required(params.padding, "padding");
     const dilation = required(params.dilation, "dilation");
+    const groups = params.groups ?? 1;
     const hasBias = !!params.hasBias;
     const biasOffset = hasBias ? inputs[2].offset : 0;
     const perWorker = Math.ceil(B / totalWorkers);
@@ -625,6 +626,7 @@ function executeKernel(
       stride,
       padding,
       dilation,
+      groups,
       startBatch,
       endBatch,
     );

@@ -520,20 +520,25 @@ export class Tensor {
   }
 
   // 1-D convolution over the last dim of a [B, C_in, L_in] input tensor.
-  // Weight is [C_out, C_in, K]; optional bias is [C_out]. Forward-only for now.
+  // Weight is [C_out, C_in/groups, K]; optional bias is [C_out]. Forward-only.
   conv1d(
     weight: Tensor,
     bias: Tensor | null,
-    opts: { stride?: number; padding?: number; dilation?: number } = {},
+    opts: { stride?: number; padding?: number; dilation?: number; groups?: number } = {},
   ): Tensor {
     const stride = opts.stride ?? 1;
     const padding = opts.padding ?? 0;
     const dilation = opts.dilation ?? 1;
+    const groups = opts.groups ?? 1;
     if (this.shape.length !== 3) throw new Error(`conv1d input must be [B, C_in, L], got ${this.shape}`);
-    if (weight.shape.length !== 3) throw new Error(`conv1d weight must be [C_out, C_in, K], got ${weight.shape}`);
+    if (weight.shape.length !== 3) throw new Error(`conv1d weight must be [C_out, C_in/G, K], got ${weight.shape}`);
     const [B, Cin, Lin] = this.shape;
-    const [Cout, wCin, K] = weight.shape;
-    if (Cin !== wCin) throw new Error(`conv1d C_in mismatch: input ${Cin} vs weight ${wCin}`);
+    const [Cout, wCinPerG, K] = weight.shape;
+    if (Cin % groups !== 0) throw new Error(`conv1d Cin=${Cin} not divisible by groups=${groups}`);
+    if (Cout % groups !== 0) throw new Error(`conv1d Cout=${Cout} not divisible by groups=${groups}`);
+    if (wCinPerG !== Cin / groups) {
+      throw new Error(`conv1d weight Cin/G mismatch: weight ${wCinPerG} vs expected ${Cin / groups}`);
+    }
     const Lout = Math.floor((Lin + 2 * padding - dilation * (K - 1) - 1) / stride) + 1;
     if (Lout <= 0) throw new Error(`conv1d yields non-positive output length ${Lout}`);
     if (bias && (bias.shape.length !== 1 || bias.shape[0] !== Cout)) {
@@ -557,13 +562,14 @@ export class Tensor {
       stride,
       padding,
       dilation,
+      groups,
       hasBias: !!b,
     });
     return new Tensor(outId, [B, Cout, Lout], false);
   }
 
   // Transposed 1-D convolution (a.k.a. fractionally-strided conv).
-  // Weight is [C_in, C_out, K]. Used for upsampling in HiFiGAN-style vocoders.
+  // Weight is [C_in, C_out/groups, K]. Used for upsampling in HiFiGAN-style vocoders.
   convTranspose1d(
     weight: Tensor,
     bias: Tensor | null,
@@ -572,17 +578,21 @@ export class Tensor {
       padding?: number;
       dilation?: number;
       outputPadding?: number;
+      groups?: number;
     } = {},
   ): Tensor {
     const stride = opts.stride ?? 1;
     const padding = opts.padding ?? 0;
     const dilation = opts.dilation ?? 1;
     const outputPadding = opts.outputPadding ?? 0;
+    const groups = opts.groups ?? 1;
     if (this.shape.length !== 3) throw new Error(`convTranspose1d input must be [B, C_in, L], got ${this.shape}`);
-    if (weight.shape.length !== 3) throw new Error(`convTranspose1d weight must be [C_in, C_out, K], got ${weight.shape}`);
+    if (weight.shape.length !== 3) throw new Error(`convTranspose1d weight must be [C_in, C_out/G, K], got ${weight.shape}`);
     const [B, Cin, Lin] = this.shape;
-    const [wCin, Cout, K] = weight.shape;
+    const [wCin, coutPerG, K] = weight.shape;
     if (Cin !== wCin) throw new Error(`convTranspose1d C_in mismatch: input ${Cin} vs weight ${wCin}`);
+    if (Cin % groups !== 0) throw new Error(`convTranspose1d Cin=${Cin} not divisible by groups=${groups}`);
+    const Cout = coutPerG * groups;
     const Lout = (Lin - 1) * stride - 2 * padding + dilation * (K - 1) + outputPadding + 1;
     if (Lout <= 0) throw new Error(`convTranspose1d yields non-positive output length ${Lout}`);
     if (bias && (bias.shape.length !== 1 || bias.shape[0] !== Cout)) {
@@ -606,6 +616,7 @@ export class Tensor {
       stride,
       padding,
       dilation,
+      groups,
       hasBias: !!b,
     });
     return new Tensor(outId, [B, Cout, Lout], false);

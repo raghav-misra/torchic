@@ -22,3 +22,5 @@ yarn-error.log*
 crates/**/target/
 src/backend/wasm/kernels.wasm
 
+# Agent session transcripts
+chat.md

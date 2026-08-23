@@ -44,7 +44,7 @@ Building blocks that already work in the library:
 - [x] N-D `Tensor.transpose(dim0, dim1)` — zero-copy stride swap
 - [x] Batched matmul `Tensor.bmm()` — Workers, WASM, WebGPU
 - [x] `Conv1d` / `ConvTranspose1d` fwd — Workers, WASM, WebGPU (dilation +
-      padding + stride, matches PyTorch layout)
+      padding + stride + **grouped/depthwise**, matches PyTorch layout)
 - [x] `Tensor.reshape([-1])` auto-materializes non-contiguous inputs
 - [x] Headless bench harness (vite + puppeteer) so all this can be exercised
       from CLI without opening a browser tab
@@ -54,8 +54,10 @@ Building blocks that already work in the library:
 - [x] Kokoro model skeleton in `src/models/kokoro/`: `AdaIN1d`,
       `AdaLayerNorm`, `AdainResBlk1d`, `TextEncoder`, `DurationEncoder`,
       `ProsodyPredictor`, `ResBlock1`, `MRF`, `ISTFTGenerator`, `PLBERT`,
-      `Kokoro`. ~105M params, right order of magnitude; exact name/shape
-      alignment with the real state_dict happens at demo review.
+      `Kokoro`. ~104M params (target 82M — the demo review will shave the
+      over-count by aligning names/shapes with the real checkpoint's
+      state_dict). AdainResBlk1d's upsample path uses depthwise
+      ConvTranspose1d (groups=C), matching the StyleTTS 2 reference.
 
 ## Gap analysis
 
@@ -65,8 +67,8 @@ style vector. What torchic is still missing:
 
 ### Ops
 
-- [x] `Conv1D` fwd (Workers, WASM, WebGPU)
-- [x] `ConvTranspose1D` fwd (Workers, WASM, WebGPU)
+- [x] `Conv1D` fwd (Workers, WASM, WebGPU, grouped)
+- [x] `ConvTranspose1D` fwd (Workers, WASM, WebGPU, grouped)
 - [x] `LayerNorm` — transformer blocks
 - [x] `GroupNorm` / `InstanceNorm1d` (composed from primitives)
 - [x] `GELU` — transformer feed-forward
@@ -140,8 +142,9 @@ harness (see `scripts/bench.mjs`) can run.
    fall out of the Kokoro demo review.
 
 3. **M3 — Conv1D + LSTM.** ✅ Done for Conv1d/ConvTranspose1d (all three
-   backends), LSTMCell + BiLSTM. Kokoro-specific extras (grouped conv,
-   weight_norm's g/v layout) will be added in the demo-review pass.
+   backends, including grouped/depthwise), LSTMCell + BiLSTM.
+   `weight_norm`'s g/v layout will be added in the demo-review pass if
+   the checkpoint stores weights pre-fusion.
 
 4. **M4 — ISTFT.** ✅ Done as main-thread CPU DSP in `src/dsp/`.
    Kokoro's `gen_istft_n_fft=20, hop=5` config is trivial for this
@@ -149,7 +152,7 @@ harness (see `scripts/bench.mjs`) can run.
 
 5. **M5 — Kokoro forward pass (weights loaded, one voice, unbatched).**
    ⏸ At the STOP point. The full module tree is in `src/models/kokoro/`
-   with param count ~105M (target 82M — the demo review will shave the
+   with param count ~104M (target 82M — the demo review will shave the
    over-count by aligning names/shapes with the real checkpoint's
    state_dict). Not yet wired to real weights per user instruction.
 

@@ -32,6 +32,7 @@ export interface OpParams {
   stride?: number;
   padding?: number;
   dilation?: number;
+  groups?: number;
   hasBias?: boolean;
   // Activation params.
   negativeSlope?: number;

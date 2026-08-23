@@ -303,6 +303,7 @@ interface Conv1dOptions {
   stride?: number;
   padding?: number;
   dilation?: number;
+  groups?: number;
   bias?: boolean;
 }
 
@@ -312,16 +313,25 @@ export class Conv1d extends Module {
   private stride: number;
   private padding: number;
   private dilation: number;
+  private groups: number;
 
   constructor(inChannels: number, outChannels: number, kernelSize: number, opts: Conv1dOptions = {}) {
     super();
     this.stride = opts.stride ?? 1;
     this.padding = opts.padding ?? 0;
     this.dilation = opts.dilation ?? 1;
-    const fanIn = inChannels * kernelSize;
+    this.groups = opts.groups ?? 1;
+    if (inChannels % this.groups !== 0) {
+      throw new Error(`Conv1d: inChannels ${inChannels} not divisible by groups ${this.groups}`);
+    }
+    if (outChannels % this.groups !== 0) {
+      throw new Error(`Conv1d: outChannels ${outChannels} not divisible by groups ${this.groups}`);
+    }
+    const cinPerG = inChannels / this.groups;
+    const fanIn = cinPerG * kernelSize;
     this.weight = this.param(
       "weight",
-      scaledRandn([outChannels, inChannels, kernelSize], Math.sqrt(2 / fanIn)),
+      scaledRandn([outChannels, cinPerG, kernelSize], Math.sqrt(2 / fanIn)),
     );
     this.bias = (opts.bias ?? true) ? this.param("bias", Tensor.zeros([outChannels], true)) : null;
   }
@@ -331,6 +341,7 @@ export class Conv1d extends Module {
       stride: this.stride,
       padding: this.padding,
       dilation: this.dilation,
+      groups: this.groups,
     });
   }
 }
@@ -346,6 +357,7 @@ export class ConvTranspose1d extends Module {
   private padding: number;
   private dilation: number;
   private outputPadding: number;
+  private groups: number;
 
   constructor(
     inChannels: number,
@@ -358,10 +370,18 @@ export class ConvTranspose1d extends Module {
     this.padding = opts.padding ?? 0;
     this.dilation = opts.dilation ?? 1;
     this.outputPadding = opts.outputPadding ?? 0;
-    const fanIn = outChannels * kernelSize;
+    this.groups = opts.groups ?? 1;
+    if (inChannels % this.groups !== 0) {
+      throw new Error(`ConvTranspose1d: inChannels ${inChannels} not divisible by groups ${this.groups}`);
+    }
+    if (outChannels % this.groups !== 0) {
+      throw new Error(`ConvTranspose1d: outChannels ${outChannels} not divisible by groups ${this.groups}`);
+    }
+    const coutPerG = outChannels / this.groups;
+    const fanIn = coutPerG * kernelSize;
     this.weight = this.param(
       "weight",
-      scaledRandn([inChannels, outChannels, kernelSize], Math.sqrt(2 / fanIn)),
+      scaledRandn([inChannels, coutPerG, kernelSize], Math.sqrt(2 / fanIn)),
     );
     this.bias = (opts.bias ?? true) ? this.param("bias", Tensor.zeros([outChannels], true)) : null;
   }
@@ -372,6 +392,7 @@ export class ConvTranspose1d extends Module {
       padding: this.padding,
       dilation: this.dilation,
       outputPadding: this.outputPadding,
+      groups: this.groups,
     });
   }
 }

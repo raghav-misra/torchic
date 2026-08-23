@@ -526,9 +526,10 @@ export class WebGPUDispatcher implements Dispatcher {
     const stride = required(params.stride, "stride");
     const padding = required(params.padding, "padding");
     const dilation = required(params.dilation, "dilation");
+    const groups = params.groups ?? 1;
     const hasBias = !!params.hasBias;
     // ConvU layout matches src/backend/webgpu/shaders/conv.wgsl.
-    const u = new Uint32Array(14);
+    const u = new Uint32Array(15);
     u[0] = inputs[0].offset >>> 2;
     u[1] = inputs[1].offset >>> 2;
     u[2] = hasBias ? inputs[2].offset >>> 2 : 0;
@@ -544,6 +545,7 @@ export class WebGPUDispatcher implements Dispatcher {
     iview[11] = stride;
     iview[12] = padding;
     iview[13] = dilation;
+    u[14] = groups;
     const total = B * Cout * Lout;
     this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
   }

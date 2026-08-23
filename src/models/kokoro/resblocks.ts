@@ -48,13 +48,17 @@ export class AdainResBlk1d extends Module {
     this.conv1x1 = this.learnedSc
       ? this.child("conv1x1", new Conv1d(dimIn, dimOut, 1, { stride: 1, padding: 0, bias: false }))
       : null;
-    // Grouped ConvTranspose1d — one filter per channel — for the upsample path.
-    // Groups aren't a native param on our nn.ConvTranspose1d yet; leave as null
-    // when upsample is false. Kokoro's ProsodyPredictor uses upsample=true on
-    // exactly one block per stack; the demo review is a good spot to add
-    // grouped convs to the primitive if needed.
+    // Depthwise ConvTranspose1d — one filter per channel — for the 2x upsample path.
     this.pool = upsample
-      ? this.child("pool", new ConvTranspose1d(dimIn, dimIn, 3, { stride: 2, padding: 1, outputPadding: 1 }))
+      ? this.child(
+          "pool",
+          new ConvTranspose1d(dimIn, dimIn, 3, {
+            stride: 2,
+            padding: 1,
+            outputPadding: 1,
+            groups: dimIn,
+          }),
+        )
       : null;
   }
 

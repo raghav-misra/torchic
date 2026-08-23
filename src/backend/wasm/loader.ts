@@ -228,6 +228,7 @@ export interface KernelExports {
     stride: number,
     pad: number,
     dil: number,
+    groups: number,
     startBatch: number,
     endBatch: number,
   ): void;
@@ -246,6 +247,7 @@ export interface KernelExports {
     stride: number,
     pad: number,
     dil: number,
+    groups: number,
     startBatch: number,
     endBatch: number,
   ): void;

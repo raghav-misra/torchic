@@ -17,19 +17,25 @@ function refConv1d(
   stride: number,
   pad: number,
   dil: number,
+  groups = 1,
 ): { out: number[]; Lout: number } {
   const Lout = Math.floor((Lin + 2 * pad - dil * (K - 1) - 1) / stride) + 1;
+  const cinPerG = Cin / groups;
+  const coutPerG = Cout / groups;
   const out = new Array(B * Cout * Lout).fill(0);
   for (let b = 0; b < B; b++) {
     for (let co = 0; co < Cout; co++) {
+      const g = Math.floor(co / coutPerG);
+      const ciStart = g * cinPerG;
       const biasVal = bias ? bias[co] : 0;
       for (let lo = 0; lo < Lout; lo++) {
         let sum = biasVal;
-        for (let ci = 0; ci < Cin; ci++) {
+        for (let ciOff = 0; ciOff < cinPerG; ciOff++) {
+          const ci = ciStart + ciOff;
           for (let k = 0; k < K; k++) {
             const li = lo * stride + k * dil - pad;
             if (li >= 0 && li < Lin) {
-              sum += x[b * Cin * Lin + ci * Lin + li] * w[co * Cin * K + ci * K + k];
+              sum += x[b * Cin * Lin + ci * Lin + li] * w[co * cinPerG * K + ciOff * K + k];
             }
           }
         }
@@ -53,8 +59,11 @@ function refConvTranspose1d(
   pad: number,
   dil: number,
   outPad: number,
+  groups = 1,
 ): { out: number[]; Lout: number } {
   const Lout = (Lin - 1) * stride - 2 * pad + dil * (K - 1) + outPad + 1;
+  const cinPerG = Cin / groups;
+  const coutPerG = Cout / groups;
   const out = new Array(B * Cout * Lout).fill(0);
   for (let b = 0; b < B; b++) {
     for (let co = 0; co < Cout; co++) {
@@ -62,13 +71,16 @@ function refConvTranspose1d(
       for (let lo = 0; lo < Lout; lo++) out[b * Cout * Lout + co * Lout + lo] = biasVal;
     }
     for (let ci = 0; ci < Cin; ci++) {
+      const g = Math.floor(ci / cinPerG);
+      const coStart = g * coutPerG;
       for (let li = 0; li < Lin; li++) {
         const xv = x[b * Cin * Lin + ci * Lin + li];
-        for (let co = 0; co < Cout; co++) {
+        for (let coOff = 0; coOff < coutPerG; coOff++) {
+          const co = coStart + coOff;
           for (let k = 0; k < K; k++) {
             const lo = li * stride + k * dil - pad;
             if (lo >= 0 && lo < Lout) {
-              out[b * Cout * Lout + co * Lout + lo] += xv * w[ci * Cout * K + co * K + k];
+              out[b * Cout * Lout + co * Lout + lo] += xv * w[ci * coutPerG * K + coOff * K + k];
             }
           }
         }
@@ -97,23 +109,26 @@ async function runConv(backend: Backend, { log }: RunContext): Promise<TestResul
 
     // Conv1D correctness cases.
     const conv1dCases = [
-      { B: 1, Cin: 1, Lin: 8, Cout: 1, K: 3, stride: 1, pad: 0, dil: 1 },
-      { B: 2, Cin: 3, Lin: 16, Cout: 5, K: 3, stride: 1, pad: 1, dil: 1 },
-      { B: 1, Cin: 4, Lin: 32, Cout: 8, K: 5, stride: 2, pad: 2, dil: 1 },
-      { B: 1, Cin: 2, Lin: 20, Cout: 4, K: 3, stride: 1, pad: 2, dil: 2 }, // dilated
-      { B: 2, Cin: 8, Lin: 16, Cout: 16, K: 3, stride: 1, pad: 1, dil: 1, noBias: true },
+      { B: 1, Cin: 1, Lin: 8, Cout: 1, K: 3, stride: 1, pad: 0, dil: 1, groups: 1 },
+      { B: 2, Cin: 3, Lin: 16, Cout: 5, K: 3, stride: 1, pad: 1, dil: 1, groups: 1 },
+      { B: 1, Cin: 4, Lin: 32, Cout: 8, K: 5, stride: 2, pad: 2, dil: 1, groups: 1 },
+      { B: 1, Cin: 2, Lin: 20, Cout: 4, K: 3, stride: 1, pad: 2, dil: 2, groups: 1 },
+      { B: 2, Cin: 8, Lin: 16, Cout: 16, K: 3, stride: 1, pad: 1, dil: 1, groups: 1, noBias: true },
+      { B: 1, Cin: 8, Lin: 16, Cout: 8, K: 3, stride: 1, pad: 1, dil: 1, groups: 8 }, // depthwise
+      { B: 2, Cin: 8, Lin: 16, Cout: 16, K: 3, stride: 1, pad: 1, dil: 1, groups: 4 }, // g=4
     ];
 
     for (const c of conv1dCases) {
+      const cinPerG = c.Cin / c.groups;
       const xData = fill(c.B * c.Cin * c.Lin, c.Cin * 31 + c.Lin);
-      const wData = fill(c.Cout * c.Cin * c.K, c.Cout * 17 + c.K);
+      const wData = fill(c.Cout * cinPerG * c.K, c.Cout * 17 + c.K);
       const bData = c.noBias ? null : fill(c.Cout, c.Cout * 11);
 
       const x = Tensor.fromData(xData, [c.B, c.Cin, c.Lin]);
-      const w = Tensor.fromData(wData, [c.Cout, c.Cin, c.K]);
+      const w = Tensor.fromData(wData, [c.Cout, cinPerG, c.K]);
       const bias = bData ? Tensor.fromData(bData) : null;
 
-      const y = x.conv1d(w, bias, { stride: c.stride, padding: c.pad, dilation: c.dil });
+      const y = x.conv1d(w, bias, { stride: c.stride, padding: c.pad, dilation: c.dil, groups: c.groups });
       const out = await y.toArray();
       const { out: ref, Lout } = refConv1d(
         xData,
@@ -127,6 +142,7 @@ async function runConv(backend: Backend, { log }: RunContext): Promise<TestResul
         c.stride,
         c.pad,
         c.dil,
+        c.groups,
       );
 
       let maxErr = 0;
@@ -134,28 +150,30 @@ async function runConv(backend: Backend, { log }: RunContext): Promise<TestResul
       const shapeOk = y.shape[0] === c.B && y.shape[1] === c.Cout && y.shape[2] === Lout;
       const ok = shapeOk && maxErr < 1e-5;
       check(
-        `Conv1D B=${c.B} Cin=${c.Cin} Lin=${c.Lin} Cout=${c.Cout} K=${c.K} s=${c.stride} p=${c.pad} d=${c.dil}${c.noBias ? " nb" : ""}`,
+        `Conv1D B=${c.B} Cin=${c.Cin} Lin=${c.Lin} Cout=${c.Cout} K=${c.K} s=${c.stride} p=${c.pad} d=${c.dil} g=${c.groups}${c.noBias ? " nb" : ""}`,
         ok,
         `Lout=${Lout} maxErr=${maxErr.toExponential(2)}`,
       );
-      log(`  ${ok ? "OK  " : "FAIL"} Conv1D shape=[${y.shape}]  maxErr=${maxErr.toExponential(2)}`);
+      log(`  ${ok ? "OK  " : "FAIL"} Conv1D shape=[${y.shape}] g=${c.groups}  maxErr=${maxErr.toExponential(2)}`);
     }
 
     // ConvTranspose1D correctness cases.
     const ctCases = [
-      { B: 1, Cin: 1, Lin: 4, Cout: 1, K: 3, stride: 1, pad: 0, dil: 1, outPad: 0 },
-      { B: 2, Cin: 3, Lin: 8, Cout: 5, K: 4, stride: 2, pad: 1, dil: 1, outPad: 0 },
-      { B: 1, Cin: 4, Lin: 5, Cout: 2, K: 5, stride: 3, pad: 2, dil: 1, outPad: 1 }, // upsample
-      { B: 1, Cin: 2, Lin: 6, Cout: 3, K: 3, stride: 1, pad: 0, dil: 2, outPad: 0 }, // dilated
+      { B: 1, Cin: 1, Lin: 4, Cout: 1, K: 3, stride: 1, pad: 0, dil: 1, outPad: 0, groups: 1 },
+      { B: 2, Cin: 3, Lin: 8, Cout: 5, K: 4, stride: 2, pad: 1, dil: 1, outPad: 0, groups: 1 },
+      { B: 1, Cin: 4, Lin: 5, Cout: 2, K: 5, stride: 3, pad: 2, dil: 1, outPad: 1, groups: 1 },
+      { B: 1, Cin: 2, Lin: 6, Cout: 3, K: 3, stride: 1, pad: 0, dil: 2, outPad: 0, groups: 1 },
+      { B: 1, Cin: 8, Lin: 8, Cout: 8, K: 3, stride: 2, pad: 1, dil: 1, outPad: 1, groups: 8 }, // depthwise upsample (kokoro's AdainResBlk1d.pool)
     ];
 
     for (const c of ctCases) {
+      const coutPerG = c.Cout / c.groups;
       const xData = fill(c.B * c.Cin * c.Lin, c.Cin * 41 + c.Lin);
-      const wData = fill(c.Cin * c.Cout * c.K, c.Cout * 23 + c.K);
+      const wData = fill(c.Cin * coutPerG * c.K, c.Cout * 23 + c.K);
       const bData = fill(c.Cout, c.Cout * 7);
 
       const x = Tensor.fromData(xData, [c.B, c.Cin, c.Lin]);
-      const w = Tensor.fromData(wData, [c.Cin, c.Cout, c.K]);
+      const w = Tensor.fromData(wData, [c.Cin, coutPerG, c.K]);
       const bias = Tensor.fromData(bData);
 
       const y = x.convTranspose1d(w, bias, {
@@ -163,6 +181,7 @@ async function runConv(backend: Backend, { log }: RunContext): Promise<TestResul
         padding: c.pad,
         dilation: c.dil,
         outputPadding: c.outPad,
+        groups: c.groups,
       });
       const out = await y.toArray();
       const { out: ref, Lout } = refConvTranspose1d(
@@ -178,6 +197,7 @@ async function runConv(backend: Backend, { log }: RunContext): Promise<TestResul
         c.pad,
         c.dil,
         c.outPad,
+        c.groups,
       );
 
       let maxErr = 0;
@@ -185,11 +205,11 @@ async function runConv(backend: Backend, { log }: RunContext): Promise<TestResul
       const shapeOk = y.shape[0] === c.B && y.shape[1] === c.Cout && y.shape[2] === Lout;
       const ok = shapeOk && maxErr < 1e-5;
       check(
-        `ConvT1D B=${c.B} Cin=${c.Cin} Lin=${c.Lin} Cout=${c.Cout} K=${c.K} s=${c.stride} p=${c.pad} d=${c.dil} op=${c.outPad}`,
+        `ConvT1D B=${c.B} Cin=${c.Cin} Lin=${c.Lin} Cout=${c.Cout} K=${c.K} s=${c.stride} p=${c.pad} d=${c.dil} op=${c.outPad} g=${c.groups}`,
         ok,
         `Lout=${Lout} maxErr=${maxErr.toExponential(2)}`,
       );
-      log(`  ${ok ? "OK  " : "FAIL"} ConvT1D shape=[${y.shape}]  maxErr=${maxErr.toExponential(2)}`);
+      log(`  ${ok ? "OK  " : "FAIL"} ConvT1D shape=[${y.shape}] g=${c.groups}  maxErr=${maxErr.toExponential(2)}`);
     }
 
     // Module wrappers: nn.Conv1d and nn.ConvTranspose1d should train (init defaults + forward).

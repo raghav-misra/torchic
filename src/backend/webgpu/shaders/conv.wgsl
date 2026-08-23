@@ -1,11 +1,9 @@
-// 1-D convolution forward. Gather formulation so we can do atomic-free
-// per-output writes. See workers/kernels/conv.ts for the reference algorithm.
-//
+// 1-D conv forward with grouped-conv support. Gather formulation — no atomics.
 // Layout matches PyTorch:
-//   input  [B, C_in,  L_in]  (contiguous)
-//   weight [C_out, C_in, K]  (contiguous)
-//   bias   [C_out]           (contiguous, optional)
-//   output [B, C_out, L_out] (contiguous)
+//   input  [B, C_in, L_in]
+//   weight [C_out, C_in/G, K]  for conv1d,  [C_in, C_out/G, K]  for conv_transpose1d
+//   bias   [C_out] (optional)
+//   output [B, C_out, L_out]
 
 struct ConvU {
   input_off: u32,
@@ -22,6 +20,7 @@ struct ConvU {
   stride: i32,
   pad: i32,
   dil: i32,
+  groups: u32,
 }
 
 @group(0) @binding(0) var<storage, read_write> heap: array<f32>;
@@ -41,12 +40,18 @@ fn conv1d(@builtin(global_invocation_id) gid: vec3<u32>) {
   var sum: f32 = 0.0;
   if (u.has_bias != 0u) { sum = heap[u.bias_off + co]; }
 
-  let in_b_off = b * u.Cin * u.Lin;
-  let w_co_off = co * u.Cin * u.K;
+  let cin_per_g = u.Cin / u.groups;
+  let cout_per_g = u.Cout / u.groups;
+  let g = co / cout_per_g;
+  let ci_start = g * cin_per_g;
 
-  for (var ci: u32 = 0u; ci < u.Cin; ci = ci + 1u) {
+  let in_b_off = b * u.Cin * u.Lin;
+  let w_co_off = co * cin_per_g * u.K;
+
+  for (var ci_off: u32 = 0u; ci_off < cin_per_g; ci_off = ci_off + 1u) {
+    let ci = ci_start + ci_off;
     let in_c_off = in_b_off + ci * u.Lin;
-    let w_ci_off = w_co_off + ci * u.K;
+    let w_ci_off = w_co_off + ci_off * u.K;
     for (var k: u32 = 0u; k < u.K; k = k + 1u) {
       let li = lo_i * u.stride + i32(k) * u.dil - u.pad;
       if (li >= 0 && li < i32(u.Lin)) {
@@ -58,10 +63,6 @@ fn conv1d(@builtin(global_invocation_id) gid: vec3<u32>) {
   heap[u.output_off + idx] = sum;
 }
 
-// ConvTranspose1d forward via gather. For each output element (b, co, lo):
-//   sum over ci, k of input[b, ci, (lo + pad - k*dil) / stride]  (when divisible)
-//                    * weight[ci, co, k]
-// weight layout: [C_in, C_out, K]
 @compute @workgroup_size(64)
 fn conv_transpose1d(@builtin(global_invocation_id) gid: vec3<u32>) {
   let total = u.B * u.Cout * u.Lout;
@@ -76,13 +77,20 @@ fn conv_transpose1d(@builtin(global_invocation_id) gid: vec3<u32>) {
   var sum: f32 = 0.0;
   if (u.has_bias != 0u) { sum = heap[u.bias_off + co]; }
 
+  let cin_per_g = u.Cin / u.groups;
+  let cout_per_g = u.Cout / u.groups;
+  let g = co / cout_per_g;
+  let ci_start = g * cin_per_g;
+  let co_off = co - g * cout_per_g;
+
   let in_b_off = b * u.Cin * u.Lin;
   let w_co_stride = u.K;
-  let w_ci_stride = u.Cout * u.K;
+  let w_ci_stride = cout_per_g * u.K;
 
-  for (var ci: u32 = 0u; ci < u.Cin; ci = ci + 1u) {
+  for (var ci_off: u32 = 0u; ci_off < cin_per_g; ci_off = ci_off + 1u) {
+    let ci = ci_start + ci_off;
     let in_c_off = in_b_off + ci * u.Lin;
-    let w_ci_off = ci * w_ci_stride + co * w_co_stride;
+    let w_ci_off = ci * w_ci_stride + co_off * w_co_stride;
     for (var k: u32 = 0u; k < u.K; k = k + 1u) {
       let j = lo_i + u.pad - i32(k) * u.dil;
       if (j >= 0 && (j % u.stride) == 0) {

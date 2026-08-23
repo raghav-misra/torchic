@@ -1,6 +1,6 @@
-// 1-D convolution kernels. Forward-only for now (Kokoro serving is inference).
-// Input layout matches PyTorch: input [B, C_in, L_in], weight [C_out, C_in, K],
-// output [B, C_out, L_out] where L_out = floor((L_in + 2*pad - dil*(K-1) - 1)/stride) + 1.
+// 1-D convolution kernels. Forward-only (Kokoro serving is inference).
+// Input layout matches PyTorch: input [B, C_in, L_in], weight [C_out, C_in/G, K],
+// output [B, C_out, L_out]. G = groups: G=1 standard, G=C_in=C_out depthwise.
 
 export function conv1d(
   input: Float32Array,
@@ -16,12 +16,15 @@ export function conv1d(
   stride: number,
   pad: number,
   dil: number,
+  groups: number,
   startBatch: number,
   endBatch: number,
 ) {
+  const cinPerG = Cin / groups;
+  const coutPerG = Cout / groups;
   const inStrideB = Cin * Lin;
   const inStrideC = Lin;
-  const wStrideCo = Cin * K;
+  const wStrideCo = cinPerG * K;
   const wStrideCi = K;
   const outStrideB = Cout * Lout;
   const outStrideC = Lout;
@@ -30,14 +33,17 @@ export function conv1d(
     const inB = b * inStrideB;
     const outB = b * outStrideB;
     for (let co = 0; co < Cout; co++) {
+      const g = Math.floor(co / coutPerG);
+      const ciStart = g * cinPerG;
       const outBase = outB + co * outStrideC;
       const wCo = co * wStrideCo;
       const biasVal = bias ? bias[co] : 0;
       for (let lo = 0; lo < Lout; lo++) {
         let sum = biasVal;
-        for (let ci = 0; ci < Cin; ci++) {
+        for (let ciOff = 0; ciOff < cinPerG; ciOff++) {
+          const ci = ciStart + ciOff;
           const inC = inB + ci * inStrideC;
-          const wCi = wCo + ci * wStrideCi;
+          const wCi = wCo + ciOff * wStrideCi;
           for (let k = 0; k < K; k++) {
             const li = lo * stride + k * dil - pad;
             if (li >= 0 && li < Lin) {
@@ -51,9 +57,7 @@ export function conv1d(
   }
 }
 
-// Transposed 1-D convolution forward.
-// Weight layout matches PyTorch: [C_in, C_out, K].
-// L_out = (L_in - 1) * stride - 2*pad + dil*(K-1) + output_pad + 1
+// Weight layout matches PyTorch: [C_in, C_out/G, K].
 export function conv_transpose1d(
   input: Float32Array,
   weight: Float32Array,
@@ -68,12 +72,15 @@ export function conv_transpose1d(
   stride: number,
   pad: number,
   dil: number,
+  groups: number,
   startBatch: number,
   endBatch: number,
 ) {
+  const cinPerG = Cin / groups;
+  const coutPerG = Cout / groups;
   const inStrideB = Cin * Lin;
   const inStrideC = Lin;
-  const wStrideCi = Cout * K;
+  const wStrideCi = coutPerG * K;
   const wStrideCo = K;
   const outStrideB = Cout * Lout;
   const outStrideC = Lout;
@@ -81,21 +88,23 @@ export function conv_transpose1d(
   for (let b = startBatch; b < endBatch; b++) {
     const inB = b * inStrideB;
     const outB = b * outStrideB;
-    // Initialize with bias (or zero) so we can accumulate the scattered writes.
     for (let co = 0; co < Cout; co++) {
       const outBase = outB + co * outStrideC;
       const biasVal = bias ? bias[co] : 0;
       for (let lo = 0; lo < Lout; lo++) out[outBase + lo] = biasVal;
     }
     for (let ci = 0; ci < Cin; ci++) {
+      const g = Math.floor(ci / cinPerG);
+      const coStart = g * coutPerG;
       const inC = inB + ci * inStrideC;
       const wCi = ci * wStrideCi;
       for (let li = 0; li < Lin; li++) {
         const xv = input[inC + li];
         if (xv === 0) continue;
-        for (let co = 0; co < Cout; co++) {
+        for (let coOff = 0; coOff < coutPerG; coOff++) {
+          const co = coStart + coOff;
           const outBase = outB + co * outStrideC;
-          const wBase = wCi + co * wStrideCo;
+          const wBase = wCi + coOff * wStrideCo;
           for (let k = 0; k < K; k++) {
             const lo = li * stride + k * dil - pad;
             if (lo >= 0 && lo < Lout) {
