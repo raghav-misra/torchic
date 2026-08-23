@@ -51,6 +51,16 @@ export async function noGrad<T>(fn: () => Promise<T>): Promise<T> {
   });
 }
 
+export function noGradSync<T>(fn: () => T): T {
+  const prev = GradMode.enabled;
+  GradMode.enabled = false;
+  try {
+    return fn();
+  } finally {
+    GradMode.enabled = prev;
+  }
+}
+
 export async function trackTensors<T>(fn: () => Promise<T>): Promise<T> {
   if (_activeTracking) {
     throw new Error("Nested tracking not supported yet");

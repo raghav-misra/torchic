@@ -1,4 +1,4 @@
-import { Tensor, noGrad } from "../frontend/tensor";
+import { Tensor, noGrad, GradMode } from "../frontend/tensor";
 import type { SafetensorsMap } from "./safetensors";
 
 export type StateDict = Record<string, Tensor>;
@@ -139,11 +139,13 @@ export abstract class Module {
 
   eval(): this {
     this.setMode(false);
+    GradMode.enabled = false;
     return this;
   }
 
   train(): this {
     this.setMode(true);
+    GradMode.enabled = true;
     return this;
   }
 
