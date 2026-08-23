@@ -279,3 +279,54 @@ export class ConvTranspose1d extends Module {
     });
   }
 }
+
+// Standard PyTorch-layout LSTM cell. weight_ih is [4*hidden, input] (concat of
+// i,f,g,o gate weights along output dim). Compatible with HuggingFace/PyTorch
+// safetensors naming so a Kokoro state_dict loads with no key remap.
+export class LSTMCell extends Module {
+  weight_ih: Tensor;
+  weight_hh: Tensor;
+  bias_ih: Tensor;
+  bias_hh: Tensor;
+  private hidden: number;
+
+  constructor(inputSize: number, hiddenSize: number) {
+    super();
+    this.hidden = hiddenSize;
+    // PyTorch default: uniform in [-1/sqrt(H), 1/sqrt(H)] — we approximate with
+    // the same stddev via normal init.
+    const k = 1 / Math.sqrt(hiddenSize);
+    this.weight_ih = this.param("weight_ih", scaledRandn([4 * hiddenSize, inputSize], k));
+    this.weight_hh = this.param("weight_hh", scaledRandn([4 * hiddenSize, hiddenSize], k));
+    this.bias_ih = this.param("bias_ih", Tensor.zeros([4 * hiddenSize], true));
+    this.bias_hh = this.param("bias_hh", Tensor.zeros([4 * hiddenSize], true));
+  }
+
+  // x: [B, input_size], (h, c): each [B, hidden_size] -> new (h, c) each [B, hidden_size]
+  forward(x: Tensor, state: [Tensor, Tensor]): [Tensor, Tensor] {
+    const [h, c] = state;
+    if (x.shape.length !== 2) throw new Error(`LSTMCell input must be [B, in], got ${x.shape}`);
+    const B = x.shape[0];
+    const H = this.hidden;
+
+    const gates = x
+      .matmul(this.weight_ih.transpose())
+      .add(this.bias_ih)
+      .add(h.matmul(this.weight_hh.transpose()))
+      .add(this.bias_hh);
+
+    const iGate = gates.slice([[0, B], [0, H]]).sigmoid();
+    const fGate = gates.slice([[0, B], [H, 2 * H]]).sigmoid();
+    const gCand = gates.slice([[0, B], [2 * H, 3 * H]]).tanh();
+    const oGate = gates.slice([[0, B], [3 * H, 4 * H]]).sigmoid();
+
+    const cNew = fGate.mul(c).add(iGate.mul(gCand));
+    const hNew = oGate.mul(cNew.tanh());
+    return [hNew, cNew];
+  }
+
+  // Helper: initial (h, c) at zeros for a given batch size, always no-grad.
+  initialState(batchSize: number): [Tensor, Tensor] {
+    return [Tensor.zeros([batchSize, this.hidden]), Tensor.zeros([batchSize, this.hidden])];
+  }
+}

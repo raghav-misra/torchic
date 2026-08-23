@@ -63,7 +63,8 @@ style vector. What torchic is still missing:
 - [x] `GELU` — transformer feed-forward
 - [x] `sigmoid` — LSTM gates
 - [ ] `LeakyReLU`, `SiLU` — decoder activations
-- [ ] `LSTM` cell (uni + bidirectional) — prosody predictor
+- [x] `LSTM` cell (PyTorch-layout weight_ih/weight_hh, composed from
+      matmul + sigmoid + tanh + slice; bidirectional/sequence wrapper TBD)
 - [x] Multi-head attention (composed from Linear + BMM + softmax + transpose;
       a fused GPU kernel is a later perf pass)
 - [ ] `Concat` / `Split` on arbitrary axes

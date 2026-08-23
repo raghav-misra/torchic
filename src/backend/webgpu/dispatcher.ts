@@ -293,9 +293,13 @@ export class WebGPUDispatcher implements Dispatcher {
     const m = required(params.m, "m");
     const n = required(params.n, "n");
     const k = required(params.k, "k");
+    // The WebGPU matmul shader assumes contiguous row-major operands. Workers
+    // and WASM matmul kernels accept strides directly; here we materialize.
+    const inA = this.maybeMaterialize(inputs[0], [m, k], params.stridesA);
+    const inB = this.maybeMaterialize(inputs[1], [k, n], params.stridesB);
     const u = new Uint32Array([
-      inputs[0].offset >>> 2,
-      inputs[1].offset >>> 2,
+      inA.meta.offset >>> 2,
+      inB.meta.offset >>> 2,
       output.offset >>> 2,
       m,
       n,
@@ -304,6 +308,8 @@ export class WebGPUDispatcher implements Dispatcher {
       m,
     ]);
     this.encodeAndSubmit(pipeline, u, Math.ceil(m / MATMUL_TILE), Math.ceil(n / MATMUL_TILE));
+    inA.free();
+    inB.free();
   }
 
   // BMM reuses the MATMUL pipeline. One command encoding, but the matmul is

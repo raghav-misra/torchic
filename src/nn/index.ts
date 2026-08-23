@@ -9,6 +9,7 @@ export {
   TransformerEncoderLayer,
   Conv1d,
   ConvTranspose1d,
+  LSTMCell,
   sinusoidalPositionalEncoding,
 } from "./layers";
 export { scaledRandn, kaimingStd } from "./init";
