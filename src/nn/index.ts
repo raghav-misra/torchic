@@ -7,6 +7,8 @@ export {
   LayerNorm,
   MultiHeadAttention,
   TransformerEncoderLayer,
+  Conv1d,
+  ConvTranspose1d,
   sinusoidalPositionalEncoding,
 } from "./layers";
 export { scaledRandn, kaimingStd } from "./init";

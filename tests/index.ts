@@ -4,6 +4,7 @@ import "./suites/matmul-bench";
 import "./suites/layernorm-gelu";
 import "./suites/bmm";
 import "./suites/attention";
+import "./suites/conv1d";
 import "./demos/makemore";
 import "./console";
 import { mount } from "./framework/render";

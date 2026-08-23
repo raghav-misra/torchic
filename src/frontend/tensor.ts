@@ -400,6 +400,98 @@ export class Tensor {
     return out;
   }
 
+  // 1-D convolution over the last dim of a [B, C_in, L_in] input tensor.
+  // Weight is [C_out, C_in, K]; optional bias is [C_out]. Forward-only for now.
+  conv1d(
+    weight: Tensor,
+    bias: Tensor | null,
+    opts: { stride?: number; padding?: number; dilation?: number } = {},
+  ): Tensor {
+    const stride = opts.stride ?? 1;
+    const padding = opts.padding ?? 0;
+    const dilation = opts.dilation ?? 1;
+    if (this.shape.length !== 3) throw new Error(`conv1d input must be [B, C_in, L], got ${this.shape}`);
+    if (weight.shape.length !== 3) throw new Error(`conv1d weight must be [C_out, C_in, K], got ${weight.shape}`);
+    const [B, Cin, Lin] = this.shape;
+    const [Cout, wCin, K] = weight.shape;
+    if (Cin !== wCin) throw new Error(`conv1d C_in mismatch: input ${Cin} vs weight ${wCin}`);
+    const Lout = Math.floor((Lin + 2 * padding - dilation * (K - 1) - 1) / stride) + 1;
+    if (Lout <= 0) throw new Error(`conv1d yields non-positive output length ${Lout}`);
+    if (bias && (bias.shape.length !== 1 || bias.shape[0] !== Cout)) {
+      throw new Error(`conv1d bias must be [C_out=${Cout}], got ${bias.shape}`);
+    }
+
+    const x = this.materialize();
+    const w = weight.materialize();
+    const b = bias ? bias.materialize() : null;
+
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, B * Cout * Lout * 4);
+    const ids = b ? [x.id, w.id, b.id] : [x.id, w.id];
+    getDispatcher().runOp("CONV1D", ids, outId, {
+      batchCount: B,
+      Cin,
+      Lin,
+      Cout,
+      K,
+      Lout,
+      stride,
+      padding,
+      dilation,
+      hasBias: !!b,
+    });
+    return new Tensor(outId, [B, Cout, Lout], false);
+  }
+
+  // Transposed 1-D convolution (a.k.a. fractionally-strided conv).
+  // Weight is [C_in, C_out, K]. Used for upsampling in HiFiGAN-style vocoders.
+  convTranspose1d(
+    weight: Tensor,
+    bias: Tensor | null,
+    opts: {
+      stride?: number;
+      padding?: number;
+      dilation?: number;
+      outputPadding?: number;
+    } = {},
+  ): Tensor {
+    const stride = opts.stride ?? 1;
+    const padding = opts.padding ?? 0;
+    const dilation = opts.dilation ?? 1;
+    const outputPadding = opts.outputPadding ?? 0;
+    if (this.shape.length !== 3) throw new Error(`convTranspose1d input must be [B, C_in, L], got ${this.shape}`);
+    if (weight.shape.length !== 3) throw new Error(`convTranspose1d weight must be [C_in, C_out, K], got ${weight.shape}`);
+    const [B, Cin, Lin] = this.shape;
+    const [wCin, Cout, K] = weight.shape;
+    if (Cin !== wCin) throw new Error(`convTranspose1d C_in mismatch: input ${Cin} vs weight ${wCin}`);
+    const Lout = (Lin - 1) * stride - 2 * padding + dilation * (K - 1) + outputPadding + 1;
+    if (Lout <= 0) throw new Error(`convTranspose1d yields non-positive output length ${Lout}`);
+    if (bias && (bias.shape.length !== 1 || bias.shape[0] !== Cout)) {
+      throw new Error(`convTranspose1d bias must be [C_out=${Cout}], got ${bias.shape}`);
+    }
+
+    const x = this.materialize();
+    const w = weight.materialize();
+    const b = bias ? bias.materialize() : null;
+
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, B * Cout * Lout * 4);
+    const ids = b ? [x.id, w.id, b.id] : [x.id, w.id];
+    getDispatcher().runOp("CONV_TRANSPOSE_1D", ids, outId, {
+      batchCount: B,
+      Cin,
+      Lin,
+      Cout,
+      K,
+      Lout,
+      stride,
+      padding,
+      dilation,
+      hasBias: !!b,
+    });
+    return new Tensor(outId, [B, Cout, Lout], false);
+  }
+
   embedding(indices: Tensor): Tensor {
     if (this.shape.length !== 2) {
       throw new Error(`Embedding weights must be 2D, got ${this.shape}`);

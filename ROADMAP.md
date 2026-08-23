@@ -42,6 +42,8 @@ Building blocks that already work in the library:
 - [x] `sigmoid` primitive (Workers, WASM, WebGPU)
 - [x] N-D `Tensor.transpose(dim0, dim1)` — zero-copy stride swap
 - [x] Batched matmul `Tensor.bmm()` — Workers, WASM, WebGPU
+- [x] `Conv1d` / `ConvTranspose1d` fwd (Workers only, dilation + padding
+      + stride, matches PyTorch layout)
 - [x] `Tensor.reshape([-1])` auto-materializes non-contiguous inputs
 - [x] Headless bench harness (vite + puppeteer) so all this can be exercised
       from CLI without opening a browser tab
@@ -54,12 +56,12 @@ style vector. What torchic is still missing:
 
 ### Ops
 
-- [ ] `Conv1D` (fwd, plus dilation and padding modes) — critical, used
-      everywhere in the decoder
-- [ ] `ConvTranspose1D` — vocoder upsampling
+- [x] `Conv1D` fwd (Workers only; WASM/WebGPU port pending)
+- [x] `ConvTranspose1D` fwd (Workers only; WASM/WebGPU port pending)
 - [x] `LayerNorm` — transformer blocks
 - [ ] `GroupNorm` / `InstanceNorm` — decoder normalization
 - [x] `GELU` — transformer feed-forward
+- [x] `sigmoid` — LSTM gates
 - [ ] `LeakyReLU`, `SiLU` — decoder activations
 - [ ] `LSTM` cell (uni + bidirectional) — prosody predictor
 - [x] Multi-head attention (composed from Linear + BMM + softmax + transpose;

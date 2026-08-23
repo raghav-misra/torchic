@@ -4,6 +4,7 @@ import * as matmul from "./kernels/matmul";
 import * as transpose from "./kernels/transpose";
 import * as reductions from "./kernels/reductions";
 import * as embedding from "./kernels/embedding";
+import * as conv from "./kernels/conv";
 import { defineWorkerOnMessage } from "../../shared/utils";
 import type { OpParams, BufferRegion } from "../../shared/types";
 import { CoordinatorRequest, ComputeRequest, ComputeResponse, TypedPort } from "../../shared/types";
@@ -406,6 +407,43 @@ function executeKernel(
     const endBatch = Math.min(startBatch + perWorker, batchCount);
     if (startBatch < batchCount) {
       matmul.bmm(inputViews[0], inputViews[1], outputView, batchCount, m, n, k, startBatch, endBatch);
+    }
+    return;
+  }
+
+  if (op === "CONV1D" || op === "CONV_TRANSPOSE_1D") {
+    const B = required(params.batchCount, "batchCount");
+    const Cin = required(params.Cin, "Cin");
+    const Lin = required(params.Lin, "Lin");
+    const Cout = required(params.Cout, "Cout");
+    const K = required(params.K, "K");
+    const Lout = required(params.Lout, "Lout");
+    const stride = required(params.stride, "stride");
+    const padding = required(params.padding, "padding");
+    const dilation = required(params.dilation, "dilation");
+    const bias = params.hasBias ? inputViews[2] : null;
+    const perWorker = Math.ceil(B / totalWorkers);
+    const startBatch = workerIndex * perWorker;
+    const endBatch = Math.min(startBatch + perWorker, B);
+    if (startBatch < B) {
+      const fn = op === "CONV1D" ? conv.conv1d : conv.conv_transpose1d;
+      fn(
+        inputViews[0],
+        inputViews[1],
+        bias,
+        outputView,
+        B,
+        Cin,
+        Lin,
+        Cout,
+        K,
+        Lout,
+        stride,
+        padding,
+        dilation,
+        startBatch,
+        endBatch,
+      );
     }
     return;
   }

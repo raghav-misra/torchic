@@ -202,3 +202,80 @@ export function sinusoidalPositionalEncoding(maxLen: number, dModel: number): Te
   }
   return Tensor.fromData(Array.from(data), [maxLen, dModel]);
 }
+
+interface Conv1dOptions {
+  stride?: number;
+  padding?: number;
+  dilation?: number;
+  bias?: boolean;
+}
+
+export class Conv1d extends Module {
+  weight: Tensor;
+  bias: Tensor | null;
+  private stride: number;
+  private padding: number;
+  private dilation: number;
+
+  constructor(inChannels: number, outChannels: number, kernelSize: number, opts: Conv1dOptions = {}) {
+    super();
+    this.stride = opts.stride ?? 1;
+    this.padding = opts.padding ?? 0;
+    this.dilation = opts.dilation ?? 1;
+    const fanIn = inChannels * kernelSize;
+    this.weight = this.param(
+      "weight",
+      scaledRandn([outChannels, inChannels, kernelSize], Math.sqrt(2 / fanIn)),
+    );
+    this.bias = (opts.bias ?? true) ? this.param("bias", Tensor.zeros([outChannels], true)) : null;
+  }
+
+  forward(x: Tensor): Tensor {
+    return x.conv1d(this.weight, this.bias, {
+      stride: this.stride,
+      padding: this.padding,
+      dilation: this.dilation,
+    });
+  }
+}
+
+interface ConvTranspose1dOptions extends Conv1dOptions {
+  outputPadding?: number;
+}
+
+export class ConvTranspose1d extends Module {
+  weight: Tensor;
+  bias: Tensor | null;
+  private stride: number;
+  private padding: number;
+  private dilation: number;
+  private outputPadding: number;
+
+  constructor(
+    inChannels: number,
+    outChannels: number,
+    kernelSize: number,
+    opts: ConvTranspose1dOptions = {},
+  ) {
+    super();
+    this.stride = opts.stride ?? 1;
+    this.padding = opts.padding ?? 0;
+    this.dilation = opts.dilation ?? 1;
+    this.outputPadding = opts.outputPadding ?? 0;
+    const fanIn = outChannels * kernelSize;
+    this.weight = this.param(
+      "weight",
+      scaledRandn([inChannels, outChannels, kernelSize], Math.sqrt(2 / fanIn)),
+    );
+    this.bias = (opts.bias ?? true) ? this.param("bias", Tensor.zeros([outChannels], true)) : null;
+  }
+
+  forward(x: Tensor): Tensor {
+    return x.convTranspose1d(this.weight, this.bias, {
+      stride: this.stride,
+      padding: this.padding,
+      dilation: this.dilation,
+      outputPadding: this.outputPadding,
+    });
+  }
+}

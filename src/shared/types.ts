@@ -23,6 +23,16 @@ export interface OpParams {
   axisSize?: number;
   innerSize?: number;
   batchCount?: number;
+  // Conv1D / ConvTranspose1D params.
+  Cin?: number;
+  Cout?: number;
+  Lin?: number;
+  Lout?: number;
+  K?: number;
+  stride?: number;
+  padding?: number;
+  dilation?: number;
+  hasBias?: boolean;
 }
 
 export interface BufferRegion {
