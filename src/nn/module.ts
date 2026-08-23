@@ -1,4 +1,5 @@
 import { Tensor, noGrad } from "../frontend/tensor";
+import type { SafetensorsMap } from "./safetensors";
 
 export type StateDict = Record<string, Tensor>;
 
@@ -97,6 +98,43 @@ export abstract class Module {
       if (missing.length) parts.push(`missing (${missing.length}): ${missing.slice(0, 5).join(", ")}`);
       if (unexpected.length) parts.push(`unexpected (${unexpected.length}): ${unexpected.slice(0, 5).join(", ")}`);
       throw new Error(`load_state_dict: ${parts.join("; ")}`);
+    }
+  }
+
+  // Load a parsed safetensors map (see src/nn/safetensors.ts) into this module.
+  // Writes Float32Array data directly into destination tensors, skipping the
+  // Tensor allocation that `load_state_dict` would incur per parameter.
+  load_safetensors(sd: SafetensorsMap, opts: { strict?: boolean; renameMap?: Record<string, string> } = {}): void {
+    const strict = opts.strict ?? true;
+    const rename = opts.renameMap;
+    const own = this.state_dict();
+    const missing: string[] = [];
+    const unexpected: string[] = [];
+
+    const sdKeys = new Set(Object.keys(sd));
+    for (const key of Object.keys(own)) {
+      const srcKey = rename?.[key] ?? key;
+      const src = sd[srcKey];
+      if (!src) {
+        missing.push(key);
+        continue;
+      }
+      const dst = own[key];
+      if (!shapeEquals(src.shape, dst.shape)) {
+        throw new Error(
+          `load_safetensors shape mismatch at '${key}' (source '${srcKey}'): dst=${dst.shape} src=${src.shape}`,
+        );
+      }
+      dst.write(src.data);
+      sdKeys.delete(srcKey);
+    }
+    for (const key of sdKeys) unexpected.push(key);
+
+    if (strict && (missing.length || unexpected.length)) {
+      const parts: string[] = [];
+      if (missing.length) parts.push(`missing (${missing.length}): ${missing.slice(0, 5).join(", ")}`);
+      if (unexpected.length) parts.push(`unexpected (${unexpected.length}): ${unexpected.slice(0, 5).join(", ")}`);
+      throw new Error(`load_safetensors: ${parts.join("; ")}`);
     }
   }
 

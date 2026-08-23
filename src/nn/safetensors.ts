@@ -123,3 +123,47 @@ export async function fetchSafetensors(url: string): Promise<SafetensorsMap> {
   const buf = await res.arrayBuffer();
   return parseSafetensors(buf);
 }
+
+// Encode a SaveMap as a single safetensors ArrayBuffer. Only writes F32; we
+// upcast BF16/F16 on load, so there's no compelling reason to write anything
+// smaller during round-trip tests.
+export function saveSafetensors(
+  map: Record<string, { shape: number[]; data: Float32Array }>,
+  metadata?: Record<string, string>,
+): ArrayBuffer {
+  const header: Record<string, RawHeaderEntry | Record<string, string>> = {};
+  let offset = 0;
+  const names: string[] = [];
+  for (const name of Object.keys(map)) names.push(name);
+  names.sort(); // deterministic layout
+
+  for (const name of names) {
+    const { shape, data } = map[name];
+    const numel = shape.reduce((a, b) => a * b, 1);
+    if (data.length !== numel) {
+      throw new Error(`saveSafetensors: '${name}' has ${data.length} floats, shape ${shape} needs ${numel}`);
+    }
+    const bytes = numel * 4;
+    header[name] = { dtype: "F32", shape, data_offsets: [offset, offset + bytes] };
+    offset += bytes;
+  }
+  if (metadata) header["__metadata__"] = metadata;
+
+  const headerJson = JSON.stringify(header);
+  const headerBytes = new TextEncoder().encode(headerJson);
+  // Pad to 8-byte alignment for the data section.
+  const padded = (headerBytes.length + 7) & ~7;
+  const buf = new ArrayBuffer(8 + padded + offset);
+  const dv = new DataView(buf);
+  dv.setBigUint64(0, BigInt(padded), true);
+  new Uint8Array(buf, 8, headerBytes.length).set(headerBytes);
+  new Uint8Array(buf, 8 + headerBytes.length, padded - headerBytes.length).fill(0x20);
+  const dataStart = 8 + padded;
+  for (const name of names) {
+    const { shape, data } = map[name];
+    const [begin] = (header[name] as RawHeaderEntry).data_offsets;
+    new Uint8Array(buf, dataStart + begin, data.byteLength).set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+    void shape;
+  }
+  return buf;
+}

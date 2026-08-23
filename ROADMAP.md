@@ -79,11 +79,15 @@ style vector. What torchic is still missing:
 
 ### Loaders
 
-- [ ] Safetensors reader (streaming fetch → parse header → mmap-like
-      `Float32Array` views over an `ArrayBuffer`)
-- [ ] BF16 → F32 upcast on load (Kokoro weights ship as bf16)
-- [ ] Weight-name remapping helper for checkpoints that don't line up 1:1 with
-      our `state_dict` keys
+- [x] Safetensors reader (header parse + F32/BF16/F16 upcast, in
+      src/nn/safetensors.ts)
+- [x] BF16 → F32 upcast on load
+- [x] Weight-name remapping helper via `Module.load_safetensors(sd, {renameMap})`
+- [x] `Module.load_safetensors(map, {strict, renameMap})` — writes
+      Float32Array data straight into destination tensors, skips the
+      Tensor-alloc round-trip of `load_state_dict`
+- [x] `saveSafetensors(map, metadata?)` — writes an ArrayBuffer we can
+      round-trip in tests
 
 ### Runtime
 
