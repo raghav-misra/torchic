@@ -119,7 +119,48 @@ async function runRoundtrip(backend: Backend, { log }: RunContext): Promise<Test
     }
     log(`  rename-map load: ${renamedOk ? "ok" : "FAIL"}`);
 
-    const allOk = maxErr < 1e-6 && maxOutErr < 1e-4 && strictRejected && renamedOk;
+    // weight_norm fuse-on-load: build a synthetic (weight_g, weight_v) pair
+    // and check that `load_safetensors` reconstructs `weight = g * v / ||v||`.
+    let weightNormOk = true;
+    let weightNormErr = 0;
+    {
+      class TinyConv extends nn.Module {
+        conv: nn.Conv1d;
+        constructor() { super(); this.conv = this.child("conv", new nn.Conv1d(2, 3, 5, { stride: 1, padding: 2 })); }
+        forward(x: Tensor): Tensor { return this.conv.forward(x); }
+      }
+      const m = new TinyConv();
+      const Cout = 3, Cin = 2, K = 5;
+      const vData = new Float32Array(Cout * Cin * K);
+      for (let i = 0; i < vData.length; i++) vData[i] = Math.sin(i * 0.31) + 0.1;
+      const gData = new Float32Array(Cout);
+      for (let o = 0; o < Cout; o++) gData[o] = 0.5 + o * 0.7;
+      const biasData = new Float32Array(Cout);
+
+      const wnSd = {
+        "conv.weight_g": { shape: [Cout, 1, 1], data: gData },
+        "conv.weight_v": { shape: [Cout, Cin, K], data: vData },
+        "conv.bias": { shape: [Cout], data: biasData },
+      };
+      m.load_safetensors(wnSd);
+      const loaded = await m.conv.weight.toArray();
+
+      const expected = new Float32Array(Cout * Cin * K);
+      for (let o = 0; o < Cout; o++) {
+        let sq = 0;
+        for (let i = 0; i < Cin * K; i++) sq += vData[o * Cin * K + i] ** 2;
+        const norm = Math.sqrt(sq);
+        for (let i = 0; i < Cin * K; i++) expected[o * Cin * K + i] = vData[o * Cin * K + i] * gData[o] / norm;
+      }
+      for (let i = 0; i < loaded.length; i++) {
+        const d = Math.abs(loaded[i] - expected[i]);
+        if (d > weightNormErr) weightNormErr = d;
+      }
+      weightNormOk = weightNormErr < 1e-5;
+    }
+    log(`  weight_norm fuse-on-load: ${weightNormOk ? "ok" : "FAIL"} (maxErr=${weightNormErr.toExponential(2)})`);
+
+    const allOk = maxErr < 1e-6 && maxOutErr < 1e-4 && strictRejected && renamedOk && weightNormOk;
     return {
       pass: allOk,
       message: allOk ? `round-trip ok (params ${maxErr.toExponential(1)}, fwd ${maxOutErr.toExponential(1)})` : "some checks failed",

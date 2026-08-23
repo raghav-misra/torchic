@@ -1,5 +1,5 @@
 import { Tensor, noGrad, GradMode } from "../frontend/tensor";
-import type { SafetensorsMap } from "./safetensors";
+import type { SafetensorsMap, SafetensorsEntry } from "./safetensors";
 
 export type StateDict = Record<string, Tensor>;
 
@@ -119,6 +119,11 @@ export abstract class Module {
 
   // Writes Float32Array data straight into destination tensors, skipping the
   // intermediate Tensor allocation that load_state_dict does per parameter.
+  //
+  // Also fuses torch.nn.utils.weight_norm on the fly: a `weight_g` + `weight_v`
+  // pair in the checkpoint gets combined into `weight = g * v / ||v||` before
+  // being written into the destination tensor. Layers that use weight_norm at
+  // training time can then run with a plain `weight` tensor at inference.
   load_safetensors(sd: SafetensorsMap, opts: { strict?: boolean; renameMap?: Record<string, string> } = {}): void {
     const strict = opts.strict ?? true;
     const rename = opts.renameMap;
@@ -129,7 +134,19 @@ export abstract class Module {
     const sdKeys = new Set(Object.keys(sd));
     for (const key of Object.keys(own)) {
       const srcKey = rename?.[key] ?? key;
-      const src = sd[srcKey];
+      let src = sd[srcKey];
+      let consumedKeys: string[] = [srcKey];
+
+      if (!src && srcKey.endsWith(".weight")) {
+        const prefix = srcKey.slice(0, -".weight".length);
+        const wg = sd[prefix + ".weight_g"];
+        const wv = sd[prefix + ".weight_v"];
+        if (wg && wv) {
+          src = { shape: wv.shape.slice(), data: fuseWeightNorm(wg, wv) };
+          consumedKeys = [prefix + ".weight_g", prefix + ".weight_v"];
+        }
+      }
+
       if (!src) {
         missing.push(key);
         continue;
@@ -141,7 +158,7 @@ export abstract class Module {
         );
       }
       dst.write(src.data);
-      sdKeys.delete(srcKey);
+      for (const k of consumedKeys) sdKeys.delete(k);
     }
     for (const key of sdKeys) unexpected.push(key);
 
@@ -178,4 +195,28 @@ function shapeEquals(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
+}
+
+// Reconstructs a weight tensor from a torch.nn.utils.weight_norm (g, v) pair.
+// g is per-output-channel magnitude (shape [C_out, 1, ...]); v holds the
+// unnormalized weight. Output has v's shape and equals g * v / ||v||_row.
+function fuseWeightNorm(wg: SafetensorsEntry, wv: SafetensorsEntry): Float32Array {
+  const shape = wv.shape;
+  if (shape.length === 0) throw new Error("weight_norm fuse: weight_v has rank 0");
+  const Cout = shape[0];
+  const perOut = wv.data.length / Cout;
+  const out = new Float32Array(wv.data.length);
+  for (let o = 0; o < Cout; o++) {
+    let sq = 0;
+    const base = o * perOut;
+    for (let i = 0; i < perOut; i++) {
+      const v = wv.data[base + i];
+      sq += v * v;
+    }
+    const norm = Math.sqrt(sq);
+    const g = wg.data[o];
+    const scale = norm > 0 ? g / norm : 0;
+    for (let i = 0; i < perOut; i++) out[base + i] = wv.data[base + i] * scale;
+  }
+  return out;
 }
