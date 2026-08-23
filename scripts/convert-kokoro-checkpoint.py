@@ -75,6 +75,7 @@ def convert_voice(pt_path: str, out_path: str) -> None:
 
 
 def main() -> None:
+    assert __doc__
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("input", help="path to .pth (model) or .pt (voice) input")
     p.add_argument("output", help="path to .safetensors output")
