@@ -12,7 +12,8 @@ export class Linear extends Module {
     super();
     this.inDim = inDim;
     this.outDim = outDim;
-    this.W = this.param("weight", scaledRandn([inDim, outDim], kaimingStd(inDim)));
+    // PyTorch nn .Linear stores weight as [out, in]. We match so state_dict shapes align.
+    this.W = this.param("weight", scaledRandn([outDim, inDim], kaimingStd(inDim)));
     this.b = bias ? this.param("bias", Tensor.zeros([outDim], true)) : null;
   }
 
@@ -23,14 +24,14 @@ export class Linear extends Module {
         `Linear: last dim ${x.shape[rank - 1]} != inDim ${this.inDim} (shape ${x.shape})`,
       );
     }
-    // PyTorch convention: matmul over the last dim, broadcast over leading dims.
+    const wT = this.W.transpose(-1, -2);
     if (rank === 2) {
-      const out = x.matmul(this.W);
+      const out = x.matmul(wT);
       return this.b ? out.add(this.b) : out;
     }
     const leading = x.shape.slice(0, rank - 1);
     const flat = x.reshape([-1, this.inDim]);
-    const out2d = flat.matmul(this.W);
+    const out2d = flat.matmul(wT);
     const out = out2d.reshape([...leading, this.outDim]);
     return this.b ? out.add(this.b) : out;
   }
