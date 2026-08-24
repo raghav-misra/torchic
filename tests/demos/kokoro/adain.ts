@@ -23,11 +23,24 @@ export class AdaIN1d extends Module {
   // x: [B, C, L], style: [B, styleDim] -> [B, C, L]
   forward(x: Tensor, style: Tensor): Tensor {
     const [B, C, _L] = x.shape;
-    const h = this.fc.forward(style).reshape([B, C * 2, 1]);
+    const fcOut = this.fc.forward(style);
+    const h = fcOut.reshape([B, C * 2, 1]);
     const gamma = h.slice([[0, B], [0, C], [0, 1]]);
     const beta = h.slice([[0, B], [C, 2 * C], [0, 1]]);
     const one = Tensor.fromData([1]);
-    return one.add(gamma).mul(this.norm.forward(x)).add(beta);
+    const gammaPlus1 = one.add(gamma);
+    one.dispose();
+    const normX = this.norm.forward(x);
+    const scaled = gammaPlus1.mul(normX);
+    gammaPlus1.dispose();
+    normX.dispose();
+    const out = scaled.add(beta);
+    scaled.dispose();
+    gamma.dispose();
+    beta.dispose();
+    h.dispose();
+    fcOut.dispose();
+    return out;
   }
 }
 
@@ -50,18 +63,36 @@ export class AdaLayerNorm extends Module {
     const [B, , C] = x.shape;
     if (C !== this.channels) throw new Error(`AdaLayerNorm: C=${C} != channels=${this.channels}`);
 
-    // Layer-norm over the last (channel) axis.
     const mean = x.mean(-1, true);
     const centered = x.sub(mean);
-    const variance = centered.mul(centered).mean(-1, true);
-    const invStd = variance.add(this.eps).rsqrt();
+    mean.dispose();
+    const sq = centered.mul(centered);
+    const variance = sq.mean(-1, true);
+    sq.dispose();
+    const varPlusEps = variance.add(this.eps);
+    variance.dispose();
+    const invStd = varPlusEps.rsqrt();
+    varPlusEps.dispose();
     const normed = centered.mul(invStd);
+    centered.dispose();
+    invStd.dispose();
 
-    const h = this.fc.forward(style).reshape([B, 1, 2 * C]);
+    const fcOut = this.fc.forward(style);
+    const h = fcOut.reshape([B, 1, 2 * C]);
     const gamma = h.slice([[0, B], [0, 1], [0, C]]);
     const beta = h.slice([[0, B], [0, 1], [C, 2 * C]]);
     const one = Tensor.fromData([1]);
-    // Broadcast [B, 1, C] over T.
-    return one.add(gamma).mul(normed).add(beta);
+    const gammaPlus1 = one.add(gamma);
+    one.dispose();
+    const scaled = gammaPlus1.mul(normed);
+    gammaPlus1.dispose();
+    normed.dispose();
+    const out = scaled.add(beta);
+    scaled.dispose();
+    gamma.dispose();
+    beta.dispose();
+    h.dispose();
+    fcOut.dispose();
+    return out;
   }
 }

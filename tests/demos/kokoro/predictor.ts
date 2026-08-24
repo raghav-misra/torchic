@@ -37,6 +37,7 @@ export class DurationEncoder extends Module {
     const styleExpanded = this.expandStyle(style, B, T);
     const xT = x.transpose(1, 2);
     let h: Tensor = Tensor.concat([xT, styleExpanded], -1);
+    xT.dispose();
     for (const block of this.lstms) {
       if (block instanceof BiLSTM) {
         const next = block.forward(h);
@@ -114,6 +115,7 @@ export class ProsodyPredictor extends Module {
   F0Nforward(x: Tensor, s: Tensor): { F0: Tensor; N: Tensor } {
     const sharedIn = x.transpose(1, 2);
     const sharedOut = this.shared.forward(sharedIn);
+    sharedIn.dispose();
 
     let F0: Tensor = sharedOut.transpose(1, 2);
     for (const block of this.F0) {
