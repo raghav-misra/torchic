@@ -68,7 +68,12 @@ export class Kokoro extends Module {
   async forward(
     inputIds: Tensor,
     refS: Tensor,
-    opts: { speed?: number; maxDurPerPhoneme?: number; onStats?: (name: string, stats: TensorStats) => void } = {},
+    opts: {
+      speed?: number;
+      maxDurPerPhoneme?: number;
+      onStats?: (name: string, stats: TensorStats) => void;
+      onStage?: (name: string) => void;
+    } = {},
   ): Promise<{ audio: Float32Array; predDur: number[]; rawDur: number[] }> {
     if (inputIds.shape.length !== 2) {
       throw new Error(`Kokoro.forward: input_ids must be [B, T], got ${inputIds.shape}`);
@@ -78,6 +83,7 @@ export class Kokoro extends Module {
     }
     const speed = opts.speed ?? 1;
     const maxDur = opts.maxDurPerPhoneme ?? Infinity;
+    const stage = opts.onStage ?? (() => {});
     const dumpStats = async (name: string, t: Tensor): Promise<void> => {
       if (!opts.onStats) return;
       opts.onStats(name, await tensorStats(t));
@@ -90,23 +96,30 @@ export class Kokoro extends Module {
     const sDecoder = refS.slice([[0, B], [0, styleDim]]);
     const sProsody = refS.slice([[0, B], [styleDim, 2 * styleDim]]);
 
+    stage("bert");
     const bertOut = await this.bert.forward(inputIds, undefined, async (i, h) => {
       const name = i === -1 ? "embeddings" : `bert_layer_${i}`;
       if (opts.onStats) opts.onStats(name, await tensorStats(h));
     });
-    await dumpStats("bert_out", bertOut);    const dEn = this.bert_encoder.forward(bertOut).transpose(-1, -2);
+    await dumpStats("bert_out", bertOut);
+    stage("bert_encoder");
+    const dEn = this.bert_encoder.forward(bertOut).transpose(-1, -2);
     await dumpStats("d_en", dEn);
     bertOut.dispose();
 
+    stage("dur_text_encoder");
     const d = this.predictor.text_encoder.forward(dEn, sProsody);
     await dumpStats("d (DurEnc out)", d);
     dEn.dispose();
+    stage("dur_lstm");
     const dLstm = this.predictor.lstm.forward(d);
     await dumpStats("x (LSTM out)", dLstm);
+    stage("dur_proj");
     const durationLogits = this.predictor.duration_proj.forward(dLstm);
     await dumpStats("duration_logits", durationLogits);
     dLstm.dispose();
 
+    stage("dur_readback");
     const durationSum = durationLogits.sigmoid().sum(-1);
     const durationArr = await durationSum.toArray();
     durationLogits.dispose();
@@ -121,6 +134,7 @@ export class Kokoro extends Module {
     }
 
     const L = predDur.reduce((a, b) => a + b, 0);
+    stage(`aln_build (T=${T} L=${L})`);
     const alnData = new Float32Array(T * L);
     let l = 0;
     for (let t = 0; t < T; t++) {
@@ -131,23 +145,29 @@ export class Kokoro extends Module {
     }
     const predAlnTrg = Tensor.fromData(Array.from(alnData), [B, T, L]);
 
+    stage("aln_bmm_d");
     const dT = d.transpose(-1, -2);
     const en = dT.bmm(predAlnTrg);
     d.dispose();
+    stage("f0n_forward");
     const { F0, N } = this.predictor.F0Nforward(en, sProsody);
     en.dispose();
 
+    stage("text_encoder");
     const tEn = this.text_encoder.forward(inputIds);
+    stage("aln_bmm_tEn");
     const asr = tEn.bmm(predAlnTrg);
     tEn.dispose();
     predAlnTrg.dispose();
 
-    const audio = await this.decoder.forward(asr, F0, N, sDecoder);
+    stage("decoder");
+    const audio = await this.decoder.forward(asr, F0, N, sDecoder, opts.onStage);
     asr.dispose();
     F0.dispose();
     N.dispose();
     sDecoder.dispose();
     sProsody.dispose();
+    stage("done");
     return { audio, predDur, rawDur };
   }
 }

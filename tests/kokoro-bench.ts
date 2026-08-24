@@ -94,7 +94,14 @@ async function main(): Promise<void> {
   status.textContent = "synth";
   log(`synthesizing...`);
   const started = performance.now();
-  const { audio, predDur } = await noGrad(() => model.forward(inputIds, refS, { speed: 1 }));
+  const { audio, predDur } = await noGrad(() =>
+    model.forward(inputIds, refS, {
+      speed: 1,
+      onStage: (name: string) => {
+        log(`stage: ${name}`);
+      },
+    }),
+  );
   const elapsed = (performance.now() - started) / 1000;
 
   const audioSec = audio.length / SAMPLE_RATE;
