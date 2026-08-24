@@ -17,11 +17,11 @@ struct LstmU {
   w_hh_off: u32,
   b_ih_off: u32,
   b_hh_off: u32,
-  out_off: u32,
+  h_new_off: u32,
+  c_new_off: u32,
   batch_size: u32,
   hidden: u32,
   in_size: u32,
-  _pad: u32,
 }
 
 @group(0) @binding(0) var<storage, read_write> heap: array<f32>;
@@ -41,7 +41,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let x_base = u.x_off + b * IN;
   let h_base = u.h_off + b * H;
   let c_base = u.c_off + b * H;
-  let out_base = u.out_off + b * 2u * H;
+  let h_out_base = u.h_new_off + b * H;
+  let c_out_base = u.c_new_off + b * H;
 
   var pre_i: f32 = heap[u.b_ih_off + 0u * H + k] + heap[u.b_hh_off + 0u * H + k];
   var pre_f: f32 = heap[u.b_ih_off + 1u * H + k] + heap[u.b_hh_off + 1u * H + k];
@@ -81,6 +82,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let c_new = fg * c_prev + ig * gc;
   let h_new = og * tanh(c_new);
 
-  heap[out_base + k] = h_new;
-  heap[out_base + H + k] = c_new;
+  heap[h_out_base + k] = h_new;
+  heap[c_out_base + k] = c_new;
 }

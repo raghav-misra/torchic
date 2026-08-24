@@ -1,8 +1,8 @@
 // Fused LSTM inference step (WASM backend). Mirrors
 // src/backend/webgpu/shaders/lstm_step.wgsl and
 // src/backend/workers/kernels/lstm.ts. Gate order i, f, g, o; weight_ih
-// is [4H, IN], weight_hh is [4H, H]. Output packs [h_new || c_new] along
-// the last dim.
+// is [4H, IN], weight_hh is [4H, H]. Writes h_new and c_new to two
+// separate destination pointers (may be inside a larger [B, T, H] buffer).
 
 #[inline(always)]
 fn sigmoid(x: f32) -> f32 {
@@ -18,7 +18,8 @@ pub unsafe extern "C" fn lstm_step(
     w_hh: *const f32,
     b_ih: *const f32,
     b_hh: *const f32,
-    out: *mut f32,
+    h_out: *mut f32,
+    c_out: *mut f32,
     batch_size: u32,
     hidden: u32,
     in_size: u32,
@@ -31,7 +32,8 @@ pub unsafe extern "C" fn lstm_step(
         let x_base = b * in_sz;
         let h_base = b * h_sz;
         let c_base = b * h_sz;
-        let out_base = b * 2 * h_sz;
+        let h_out_base = b * h_sz;
+        let c_out_base = b * h_sz;
 
         for k in 0..h_sz {
             let mut pre_i = *b_ih.add(0 * h_sz + k) + *b_hh.add(0 * h_sz + k);
@@ -72,8 +74,8 @@ pub unsafe extern "C" fn lstm_step(
             let c_new = fg * c_prev + ig * gc;
             let h_new = og * libm::tanhf(c_new);
 
-            *out.add(out_base + k) = h_new;
-            *out.add(out_base + h_sz + k) = c_new;
+            *h_out.add(h_out_base + k) = h_new;
+            *c_out.add(c_out_base + k) = c_new;
         }
     }
 }

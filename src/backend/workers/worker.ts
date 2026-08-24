@@ -485,10 +485,16 @@ function executeKernel(
       const hidden = required(params.hidden, "hidden");
       const inSize = required(params.inSize, "inSize");
       const batchSize = required(params.batchSize, "batchSize");
+      const hNewOffBytes = params.hNewOffBytes ?? output.offset;
+      const cNewOffBytes = params.cNewOffBytes ?? (output.offset + batchSize * hidden * 4);
+      // Shared heap; hOut/cOut views cover a single [B, H] region each.
+      const hOutView = new Float32Array(buf, hNewOffBytes, batchSize * hidden);
+      const cOutView = new Float32Array(buf, cNewOffBytes, batchSize * hidden);
       lstm.lstm_step(
         inputViews[0], inputViews[1], inputViews[2],
         inputViews[3], inputViews[4], inputViews[5], inputViews[6],
-        outputView, batchSize, hidden, inSize,
+        hOutView, 0, cOutView, 0,
+        batchSize, hidden, inSize,
       );
     }
     return;

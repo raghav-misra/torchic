@@ -585,6 +585,11 @@ export class WebGPUDispatcher implements Dispatcher {
     const inSize = required(params.inSize, "inSize");
     const batchSize = required(params.batchSize, "batchSize");
     const [x, h, c, wIh, wHh, bIh, bHh] = inputs;
+    // If callers provide split output offsets (byte offsets into heap) we
+    // write h_new and c_new to two distinct regions -- lets BiLSTM stack
+    // outputs directly into a preallocated [B, T, H] buffer.
+    const hNewOff = params.hNewOffBytes ?? out.offset;
+    const cNewOff = params.cNewOffBytes ?? (out.offset + batchSize * hidden * 4);
     const u = new Uint32Array([
       x.offset >>> 2,
       h.offset >>> 2,
@@ -593,11 +598,11 @@ export class WebGPUDispatcher implements Dispatcher {
       wHh.offset >>> 2,
       bIh.offset >>> 2,
       bHh.offset >>> 2,
-      out.offset >>> 2,
+      hNewOff >>> 2,
+      cNewOff >>> 2,
       batchSize,
       hidden,
       inSize,
-      0,
     ]);
     const total = batchSize * hidden;
     this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);

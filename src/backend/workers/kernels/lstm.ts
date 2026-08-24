@@ -1,7 +1,6 @@
 // Fused LSTM inference step (workers backend). Mirrors
 // src/backend/webgpu/shaders/lstm_step.wgsl. One call per timestep per
 // direction, replacing the ~20 sequential dispatches of the composed path.
-// Output layout: [B, 2H] with h_new in the first H slots, c_new in the next H.
 
 export function lstm_step(
   x: Float32Array,
@@ -11,7 +10,10 @@ export function lstm_step(
   wHh: Float32Array,
   bIh: Float32Array,
   bHh: Float32Array,
-  out: Float32Array,
+  hOut: Float32Array,
+  hOutOffset: number,
+  cOut: Float32Array,
+  cOutOffset: number,
   batchSize: number,
   hidden: number,
   inSize: number,
@@ -22,7 +24,8 @@ export function lstm_step(
     const xBase = b * IN;
     const hBase = b * H;
     const cBase = b * H;
-    const outBase = b * 2 * H;
+    const hOutBase = hOutOffset + b * H;
+    const cOutBase = cOutOffset + b * H;
 
     for (let k = 0; k < H; k++) {
       let preI = bIh[0 * H + k] + bHh[0 * H + k];
@@ -63,8 +66,8 @@ export function lstm_step(
       const cNew = fg * cPrev + ig * gc;
       const hNew = og * Math.tanh(cNew);
 
-      out[outBase + k] = hNew;
-      out[outBase + H + k] = cNew;
+      hOut[hOutBase + k] = hNew;
+      cOut[cOutBase + k] = cNew;
     }
   }
 }

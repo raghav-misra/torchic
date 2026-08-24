@@ -746,6 +746,56 @@ export class Tensor {
     return new Tensor(outId, [B, 2 * hidden], false);
   }
 
+  // Direct-write variant: writes h_new and c_new into pre-allocated tensors
+  // at the given byte offsets. No new tensor allocation. Used by BiLSTM to
+  // stack outputs into a [B, T, H] buffer without a per-step concat.
+  lstmStepInto(
+    h: Tensor,
+    c: Tensor,
+    weightIh: Tensor,
+    weightHh: Tensor,
+    biasIh: Tensor,
+    biasHh: Tensor,
+    hOut: Tensor,
+    hOutOffsetBytes: number,
+    cOut: Tensor,
+    cOutOffsetBytes: number,
+  ): void {
+    if (this.shape.length !== 2) throw new Error(`lstmStepInto x must be [B, in_size], got ${this.shape}`);
+    const [B, inSize] = this.shape;
+    const hidden = h.shape[1];
+
+    const x = this.materialize();
+    const hM = h.materialize();
+    const cM = c.materialize();
+    const wIh = weightIh.materialize();
+    const wHh = weightHh.materialize();
+    const bIh = biasIh.materialize();
+    const bHh = biasHh.materialize();
+
+    // Reuse hOut as the "output" tensor for lifecycle bookkeeping; the actual
+    // write offsets come from params.
+    getDispatcher().runOp(
+      "LSTM_STEP",
+      [x.id, hM.id, cM.id, wIh.id, wHh.id, bIh.id, bHh.id],
+      hOut.id,
+      {
+        batchSize: B,
+        hidden,
+        inSize,
+        hNewOffBytes: hOut.offset + hOutOffsetBytes,
+        cNewOffBytes: cOut.offset + cOutOffsetBytes,
+      },
+    );
+    if (x !== this) x.dispose();
+    if (hM !== h) hM.dispose();
+    if (cM !== c) cM.dispose();
+    if (wIh !== weightIh) wIh.dispose();
+    if (wHh !== weightHh) wHh.dispose();
+    if (bIh !== biasIh) bIh.dispose();
+    if (bHh !== biasHh) bHh.dispose();
+  }
+
   embedding(indices: Tensor): Tensor {
     if (this.shape.length !== 2) {
       throw new Error(`Embedding weights must be 2D, got ${this.shape}`);

@@ -623,8 +623,6 @@ export class BiLSTM extends Module {
     const bHH = dir === "fwd" ? this.bias_hh_l0 : this.bias_hh_l0_reverse;
     let h = Tensor.zeros([B, H]);
     let c = Tensor.zeros([B, H]);
-    // Iterate in the requested direction and place each step's h at its
-    // natural time index — avoids two full slice+concat reversal passes.
     const outputs: Tensor[] = new Array(T);
     for (let step = 0; step < T; step++) {
       const t = dir === "fwd" ? step : T - 1 - step;

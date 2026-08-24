@@ -45,6 +45,9 @@ export interface OpParams {
   hidden?: number;
   inSize?: number;
   batchSize?: number;
+  // LSTM_STEP direct-write output offsets (bytes into heap).
+  hNewOffBytes?: number;
+  cNewOffBytes?: number;
 }
 
 export interface BufferRegion {
