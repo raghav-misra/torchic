@@ -66,11 +66,18 @@ fn conv1d(
     let in_b_off = b * u.Cin * u.Lin;
 
     // Precompute k range where li stays in bounds; hoists the boundary check
-    // out of the tight inner loop.
+    // out of the tight inner loop. Only use positive integer division so we
+    // don't rely on WGSL round-toward-zero semantics for negative dividends.
     let li_at_k0 = lo_i * u.stride - u.pad;
     let lin_i = i32(u.Lin);
-    let k_min_i = max(0, (u.dil - 1 - li_at_k0) / u.dil);
-    let k_max_i = min(i32(u.K), (lin_i - li_at_k0 + u.dil - 1) / u.dil);
+    var k_min_i: i32 = 0;
+    if (li_at_k0 < 0) {
+      k_min_i = (-li_at_k0 + u.dil - 1) / u.dil;
+    }
+    var k_max_i: i32 = 0;
+    if (li_at_k0 < lin_i) {
+      k_max_i = min(i32(u.K), (lin_i - li_at_k0 + u.dil - 1) / u.dil);
+    }
 
     if (k_min_i < k_max_i) {
       let k_min = u32(k_min_i);
@@ -80,7 +87,7 @@ fn conv1d(
         let in_c_off = in_b_off + ci * u.Lin;
         let w_ci_off = ci_off * u.K;
         for (var k: u32 = k_min; k < k_max; k = k + 1u) {
-          let li = lo_i * u.stride + i32(k) * u.dil - u.pad;
+          let li = li_at_k0 + i32(k) * u.dil;
           sum = sum + heap[u.input_off + in_c_off + u32(li)] * w_tile[w_ci_off + k];
         }
       }
