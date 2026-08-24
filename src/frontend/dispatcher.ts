@@ -20,6 +20,14 @@ export function memoryStats(): MemoryStats | null {
   return dispatcher?.memoryStats?.() ?? null;
 }
 
+export function opCountSnapshot(): Record<string, number> | null {
+  return dispatcher?.opCountSnapshot?.() ?? null;
+}
+
+export function resetOpCounts(): void {
+  dispatcher?.resetOpCounts?.();
+}
+
 interface InitOptions {
   backend: "workers" | "wasm" | "webgpu";
   threadCount?: number;

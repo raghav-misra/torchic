@@ -27,4 +27,6 @@ export interface Dispatcher {
   readValue(tensorId: TensorId, offset: number): Promise<number>;
 
   memoryStats?(): MemoryStats;
+  opCountSnapshot?(): Record<string, number>;
+  resetOpCounts?(): void;
 }

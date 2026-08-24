@@ -188,8 +188,12 @@ export class Tensor {
   }
 
   private isContiguous(): boolean {
+    // Size-1 dims have exactly one element, so their stride is a "don't care"
+    // for row-major layout — a slice that gives shape [1, 1, N] over a [B, T, N]
+    // source is still N contiguous elements regardless of the outer strides.
     let expectedStride = 1;
     for (let i = this.shape.length - 1; i >= 0; i--) {
+      if (this.shape[i] === 1) continue;
       if (this.strides[i] !== expectedStride) return false;
       expectedStride *= this.shape[i];
     }

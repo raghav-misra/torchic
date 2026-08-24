@@ -623,11 +623,14 @@ export class BiLSTM extends Module {
     const bHH = dir === "fwd" ? this.bias_hh_l0 : this.bias_hh_l0_reverse;
     let h = Tensor.zeros([B, H]);
     let c = Tensor.zeros([B, H]);
-    const outputs: Tensor[] = [];
-    for (let t = 0; t < T; t++) {
+    // Iterate in the requested direction and place each step's h at its
+    // natural time index — avoids two full slice+concat reversal passes.
+    const outputs: Tensor[] = new Array(T);
+    for (let step = 0; step < T; step++) {
+      const t = dir === "fwd" ? step : T - 1 - step;
       const xt = x.slice([[0, B], [t, t + 1], [0, in_]]).reshape([B, in_]);
       [h, c] = lstmStep(xt, h, c, wIH, wHH, bIH, bHH, H);
-      outputs.push(h.reshape([B, 1, H]));
+      outputs[t] = h.reshape([B, 1, H]);
     }
     return Tensor.concat(outputs, 1);
   }
@@ -635,8 +638,10 @@ export class BiLSTM extends Module {
   forward(x: Tensor): Tensor {
     if (x.shape.length !== 3) throw new Error(`BiLSTM input must be [B, T, in], got ${x.shape}`);
     const fwdOut = this.runDirection(x, "fwd");
-    const rev = reverseTime(x);
-    const bwdOut = reverseTime(this.runDirection(rev, "rev"));
-    return Tensor.concat([fwdOut, bwdOut], -1);
+    const bwdOut = this.runDirection(x, "rev");
+    const result = Tensor.concat([fwdOut, bwdOut], -1);
+    fwdOut.dispose();
+    bwdOut.dispose();
+    return result;
   }
 }

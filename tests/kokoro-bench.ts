@@ -1,4 +1,4 @@
-import { Tensor, init, noGrad, nn, memoryStats } from "../src/index";
+import { Tensor, init, noGrad, nn, memoryStats, opCountSnapshot, resetOpCounts } from "../src/index";
 import { Kokoro } from "./demos/kokoro/index";
 import SAMPLES_JSON from "./demos/kokoro/samples.json";
 
@@ -94,6 +94,7 @@ async function main(): Promise<void> {
 
   status.textContent = "synth";
   log(`synthesizing...`);
+  resetOpCounts();
   const started = performance.now();
   const { audio, predDur } = await noGrad(() =>
     model.forward(inputIds, refS, {
@@ -132,6 +133,16 @@ async function main(): Promise<void> {
   log(`audio: ${audio.length} samples (${audioSec.toFixed(2)}s @ ${SAMPLE_RATE}Hz)`);
   log(`synthesis took ${elapsed.toFixed(2)}s → RTF ${rtf.toFixed(3)}`);
   log(`peak amplitude: ${peak.toExponential(3)}${nans ? ` (${nans} NaN)` : ""}`);
+
+  const ops = opCountSnapshot();
+  if (ops) {
+    const sorted = Object.entries(ops).sort((a, b) => b[1] - a[1]);
+    const total = sorted.reduce((sum, [, n]) => sum + n, 0);
+    log(`ops: ${total} dispatches total`);
+    for (const [name, count] of sorted.slice(0, 20)) {
+      log(`  ${name.padEnd(28)} ${String(count).padStart(6)}`);
+    }
+  }
 
   const result = {
     sample: sampleKey,

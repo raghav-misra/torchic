@@ -31,6 +31,7 @@ export class WebGPUDispatcher implements Dispatcher {
   private tensorIdCounter = 0;
   private readonly instanceTag = crypto.randomUUID().slice(0, 8);
   private inflight: Promise<void> = Promise.resolve();
+  private readonly opCounts = new Map<string, number>();
 
   async init(_threadCount = 0, memorySizeMB = 256): Promise<void> {
     if (this.device) return;
@@ -96,6 +97,14 @@ export class WebGPUDispatcher implements Dispatcher {
     return this.allocator.getStats();
   }
 
+  opCountSnapshot(): Record<string, number> {
+    return Object.fromEntries(this.opCounts);
+  }
+
+  resetOpCounts(): void {
+    this.opCounts.clear();
+  }
+
   allocate(tensorId: TensorId, size: number): void {
     const alloc = this.allocator;
     if (!alloc) throw new Error("Dispatcher not initialized");
@@ -128,6 +137,7 @@ export class WebGPUDispatcher implements Dispatcher {
     if (!this.device || !this.queue || !this.bindGroup || !this.uniforms) {
       throw new Error("Dispatcher not initialized");
     }
+    this.opCounts.set(op, (this.opCounts.get(op) ?? 0) + 1);
 
     const inMetas = inputs.map((id) => this.tensorRegistry.get(id));
     const outMeta = this.tensorRegistry.get(output);
