@@ -809,6 +809,7 @@ function isContiguous(shape: number[] | undefined, strides: number[] | undefined
   if (!shape || !strides) return true;
   let expected = 1;
   for (let i = shape.length - 1; i >= 0; i--) {
+    if (shape[i] === 1) continue;
     if (strides[i] !== expected) return false;
     expected *= shape[i];
   }
