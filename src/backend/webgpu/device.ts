@@ -35,5 +35,10 @@ export async function requestContext(): Promise<WebGPUContext> {
     console.error("WebGPU device lost:", info.reason, info.message);
   });
 
+  device.addEventListener("uncapturederror", (e) => {
+    const err = (e as GPUUncapturedErrorEvent).error;
+    console.error("WebGPU uncaptured error:", err.message);
+  });
+
   return { device, queue: device.queue };
 }

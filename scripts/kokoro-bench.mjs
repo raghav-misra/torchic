@@ -147,6 +147,10 @@ async function main() {
       error = text.slice("__ERROR__".length);
     } else if (text.startsWith("[bench] ")) {
       process.stderr.write(text + "\n");
+    } else if (msg.type() === "error" || msg.type() === "warning") {
+      // Silent swallow patterns (allocator OOM, missing metadata) go through
+      // console.error inside dispatcher code — surface those too.
+      process.stderr.write(`[browser ${msg.type()}] ${text}\n`);
     }
   });
 
@@ -154,6 +158,7 @@ async function main() {
   url.searchParams.set("sample", sample);
   url.searchParams.set("backend", backend);
   url.searchParams.set("memory", String(memory));
+  if (args.verbose) url.searchParams.set("verbose", "1");
   await page.goto(url.toString(), { waitUntil: "load" });
 
   // Wait until the bench page requests each file (via status text), then

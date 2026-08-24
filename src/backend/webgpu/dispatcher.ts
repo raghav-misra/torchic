@@ -40,6 +40,13 @@ export class WebGPUDispatcher implements Dispatcher {
     this.queue = queue;
 
     const heapBytes = memorySizeMB * 1024 * 1024;
+    const maxBuf = device.limits.maxBufferSize;
+    const maxStorage = device.limits.maxStorageBufferBindingSize;
+    if (heapBytes > maxBuf || heapBytes > maxStorage) {
+      throw new Error(
+        `Requested heap ${memorySizeMB} MB exceeds device limits (maxBufferSize=${(maxBuf / 1024 / 1024) | 0} MB, maxStorageBufferBindingSize=${(maxStorage / 1024 / 1024) | 0} MB)`,
+      );
+    }
     this.heap = device.createBuffer({
       label: "torchic heap",
       size: heapBytes,

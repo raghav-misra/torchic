@@ -50,6 +50,7 @@ async function main(): Promise<void> {
   const sampleKey = params.get("sample") ?? "pangram";
   const backend = (params.get("backend") ?? "webgpu") as "webgpu" | "workers";
   const memorySizeMB = parseInt(params.get("memory") ?? "1536", 10);
+  const verbose = params.get("verbose") === "1";
 
   const sample = SAMPLES[sampleKey];
   if (!sample) throw new Error(`unknown sample '${sampleKey}'. available: ${Object.keys(SAMPLES).join(", ")}`);
@@ -100,6 +101,14 @@ async function main(): Promise<void> {
       onStage: (name: string) => {
         log(`stage: ${name}`);
       },
+      onStats: verbose
+        ? async (name: string, stats) => {
+            const s = stats;
+            log(
+              `stat ${name} shape=[${s.shape.join(",")}] mean=${s.mean.toExponential(3)} std=${s.std.toExponential(3)} min=${s.min.toExponential(3)} max=${s.max.toExponential(3)}`,
+            );
+          }
+        : undefined,
     }),
   );
   const elapsed = (performance.now() - started) / 1000;

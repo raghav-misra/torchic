@@ -152,19 +152,27 @@ export class Kokoro extends Module {
     const en = dT.bmm(predAlnTrg);
     dT.dispose();
     d.dispose();
+    await dumpStats("en", en);
     stage("f0n_forward");
     const { F0, N } = this.predictor.F0Nforward(en, sProsody);
     en.dispose();
+    await dumpStats("F0", F0);
+    await dumpStats("N", N);
 
     stage("text_encoder");
     const tEn = this.text_encoder.forward(inputIds);
+    await dumpStats("tEn", tEn);
     stage("aln_bmm_tEn");
     const asr = tEn.bmm(predAlnTrg);
     tEn.dispose();
     predAlnTrg.dispose();
+    await dumpStats("asr", asr);
 
     stage("decoder");
-    const audio = await this.decoder.forward(asr, F0, N, sDecoder, opts.onStage);
+    const decOnStats = opts.onStats
+      ? async (name: string, t: Tensor) => opts.onStats!(name, await tensorStats(t))
+      : undefined;
+    const audio = await this.decoder.forward(asr, F0, N, sDecoder, opts.onStage, decOnStats);
     asr.dispose();
     F0.dispose();
     N.dispose();
