@@ -463,6 +463,26 @@ export class Tensor {
     return this.runUnaryOp("COS");
   }
 
+  // Fused Snake activation: y = x + (1/α)·sin²(α·x). α broadcasts per channel.
+  // Expects `this` shape [B, C, T] contiguous and `alpha` with numel == C.
+  snake(alpha: Tensor): Tensor {
+    if (this.shape.length !== 3) {
+      throw new Error(`snake: expected [B, C, T] input, got shape [${this.shape.join(",")}]`);
+    }
+    const [, C, T] = this.shape;
+    const alphaNumel = alpha.shape.reduce((a, b) => a * b, 1);
+    if (alphaNumel !== C) {
+      throw new Error(`snake: alpha numel ${alphaNumel} must equal C=${C}`);
+    }
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, this.numElements() * 4);
+    getDispatcher().runOp("SNAKE_1D", [this.id, alpha.id], outId, {
+      axisSize: C,
+      innerSize: T,
+    });
+    return new Tensor(outId, this.shape.slice(), false);
+  }
+
   gelu(): Tensor {
     return this.runUnaryOp("GELU");
   }

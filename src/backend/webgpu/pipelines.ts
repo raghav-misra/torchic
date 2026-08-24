@@ -11,6 +11,7 @@ import embeddingWgsl from "./shaders/embedding.wgsl?raw";
 import convWgsl from "./shaders/conv.wgsl?raw";
 import concatWgsl from "./shaders/concat.wgsl?raw";
 import lstmStepWgsl from "./shaders/lstm_step.wgsl?raw";
+import snakeWgsl from "./shaders/snake.wgsl?raw";
 
 const MODULE_SOURCE: Record<string, string> = {
   binary: binaryWgsl,
@@ -26,6 +27,7 @@ const MODULE_SOURCE: Record<string, string> = {
   conv: convWgsl,
   concat: concatWgsl,
   lstm_step: lstmStepWgsl,
+  snake: snakeWgsl,
 };
 
 // Op → (shader module, entry point). Entry points in WGSL can't shadow certain
@@ -78,6 +80,7 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   CONV_TRANSPOSE_1D: { module: "conv", entry: "conv_transpose1d" },
   CONCAT_SLAB: { module: "concat", entry: "concat_slab" },
   LSTM_STEP: { module: "lstm_step", entry: "main" },
+  SNAKE_1D: { module: "snake", entry: "main" },
 };
 
 export interface Pipelines {

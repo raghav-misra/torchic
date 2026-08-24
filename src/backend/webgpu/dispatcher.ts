@@ -185,6 +185,7 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "CONV_TRANSPOSE_1D") return this.dispatchConvTranspose1d(pipeline, im, outMeta, params);
     if (op === "CONCAT_SLAB") return this.dispatchConcatSlab(pipeline, im, outMeta, params);
     if (op === "LSTM_STEP") return this.dispatchLstmStep(pipeline, im, outMeta, params);
+    if (op === "SNAKE_1D") return this.dispatchSnake1D(pipeline, im, outMeta, params);
 
     // Elementwise families: materialize any non-contiguous operand into scratch,
     // then dispatch the contiguous fast path.
@@ -651,6 +652,27 @@ export class WebGPUDispatcher implements Dispatcher {
     ]);
     const total = batchSize * hidden;
     this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
+  }
+
+  private dispatchSnake1D(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const channels = required(params.axisSize, "axisSize");
+    const inner = required(params.innerSize, "innerSize");
+    const numel = out.size / 4;
+    const [x, alpha] = inputs;
+    const u = new Uint32Array([
+      x.offset >>> 2,
+      alpha.offset >>> 2,
+      out.offset >>> 2,
+      numel,
+      channels,
+      inner,
+    ]);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(numel / ELEMENTWISE_TILE), 1);
   }
 
   private dispatchConcatSlab(

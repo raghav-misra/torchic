@@ -80,20 +80,7 @@ export class AdaINResBlock1 extends Module {
   }
 
   private snake(x: Tensor, alpha: Tensor): Tensor {
-    const ax = alpha.mul(x);
-    const sinAx = ax.sin();
-    ax.dispose();
-    const sinSq = sinAx.mul(sinAx);
-    sinAx.dispose();
-    const ones = Tensor.ones([1, this.channels, 1]);
-    const invAlpha = ones.div(alpha);
-    ones.dispose();
-    const scaled = invAlpha.mul(sinSq);
-    invAlpha.dispose();
-    sinSq.dispose();
-    const out = x.add(scaled);
-    scaled.dispose();
-    return out;
+    return x.snake(alpha);
   }
 
   forward(x: Tensor, s: Tensor): Tensor {
