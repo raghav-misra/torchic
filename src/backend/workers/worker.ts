@@ -6,6 +6,7 @@ import * as reductions from "./kernels/reductions";
 import * as embedding from "./kernels/embedding";
 import * as conv from "./kernels/conv";
 import * as concat from "./kernels/concat";
+import * as lstm from "./kernels/lstm";
 import { defineWorkerOnMessage } from "../../shared/utils";
 import type { OpParams, BufferRegion } from "../../shared/types";
 import { CoordinatorRequest, ComputeRequest, ComputeResponse, TypedPort } from "../../shared/types";
@@ -472,6 +473,22 @@ function executeKernel(
         innerSize,
         start,
         end,
+      );
+    }
+    return;
+  }
+
+  if (op === "LSTM_STEP") {
+    // Recurrence per timestep is tiny (B*H ≈ 256 cells); running on one
+    // worker beats coordinating across all of them.
+    if (workerIndex === 0) {
+      const hidden = required(params.hidden, "hidden");
+      const inSize = required(params.inSize, "inSize");
+      const batchSize = required(params.batchSize, "batchSize");
+      lstm.lstm_step(
+        inputViews[0], inputViews[1], inputViews[2],
+        inputViews[3], inputViews[4], inputViews[5], inputViews[6],
+        outputView, batchSize, hidden, inSize,
       );
     }
     return;

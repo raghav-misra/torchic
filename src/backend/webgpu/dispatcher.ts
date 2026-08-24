@@ -158,6 +158,7 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "CONV1D" || op === "CONV_TRANSPOSE_1D")
       return this.dispatchConv1d(pipeline, im, outMeta, params);
     if (op === "CONCAT_SLAB") return this.dispatchConcatSlab(pipeline, im, outMeta, params);
+    if (op === "LSTM_STEP") return this.dispatchLstmStep(pipeline, im, outMeta, params);
 
     // Elementwise families: materialize any non-contiguous operand into scratch,
     // then dispatch the contiguous fast path.
@@ -549,6 +550,34 @@ export class WebGPUDispatcher implements Dispatcher {
     iview[13] = dilation;
     u[14] = groups;
     const total = B * Cout * Lout;
+    this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
+  }
+
+  private dispatchLstmStep(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const hidden = required(params.hidden, "hidden");
+    const inSize = required(params.inSize, "inSize");
+    const batchSize = required(params.batchSize, "batchSize");
+    const [x, h, c, wIh, wHh, bIh, bHh] = inputs;
+    const u = new Uint32Array([
+      x.offset >>> 2,
+      h.offset >>> 2,
+      c.offset >>> 2,
+      wIh.offset >>> 2,
+      wHh.offset >>> 2,
+      bIh.offset >>> 2,
+      bHh.offset >>> 2,
+      out.offset >>> 2,
+      batchSize,
+      hidden,
+      inSize,
+      0,
+    ]);
+    const total = batchSize * hidden;
     this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
   }
 

@@ -41,6 +41,10 @@ export interface OpParams {
   inAxisSize?: number;
   outAxisSize?: number;
   axisOffset?: number;
+  // LSTM_STEP params.
+  hidden?: number;
+  inSize?: number;
+  batchSize?: number;
 }
 
 export interface BufferRegion {

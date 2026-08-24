@@ -9,6 +9,7 @@ mod softmax;
 mod transpose;
 mod conv;
 mod concat;
+mod lstm;
 
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {

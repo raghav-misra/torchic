@@ -665,6 +665,60 @@ export class Tensor {
     return new Tensor(outId, [B, Cout, Lout], false);
   }
 
+  // Fused LSTM step (inference only). `this` = x at the current timestep,
+  // shape [B, in_size]. Returns a [B, 2*hidden] tensor packing
+  // [h_new || c_new] along the last dim — caller slices into two views.
+  //
+  // Gate order matches PyTorch nn.LSTM: i, f, g, o. Weights are
+  // weight_ih [4*hidden, in_size] and weight_hh [4*hidden, hidden];
+  // biases [4*hidden] each.
+  lstmStep(
+    h: Tensor,
+    c: Tensor,
+    weightIh: Tensor,
+    weightHh: Tensor,
+    biasIh: Tensor,
+    biasHh: Tensor,
+  ): Tensor {
+    if (this.shape.length !== 2) throw new Error(`lstmStep x must be [B, in_size], got ${this.shape}`);
+    const [B, inSize] = this.shape;
+    if (h.shape.length !== 2 || h.shape[0] !== B) throw new Error(`lstmStep h shape ${h.shape} incompatible with x ${this.shape}`);
+    if (c.shape.length !== 2 || c.shape[0] !== B || c.shape[1] !== h.shape[1]) {
+      throw new Error(`lstmStep c shape ${c.shape} must match h ${h.shape}`);
+    }
+    const hidden = h.shape[1];
+    if (weightIh.shape.length !== 2 || weightIh.shape[0] !== 4 * hidden || weightIh.shape[1] !== inSize) {
+      throw new Error(`lstmStep weight_ih shape ${weightIh.shape} expected [${4 * hidden}, ${inSize}]`);
+    }
+    if (weightHh.shape.length !== 2 || weightHh.shape[0] !== 4 * hidden || weightHh.shape[1] !== hidden) {
+      throw new Error(`lstmStep weight_hh shape ${weightHh.shape} expected [${4 * hidden}, ${hidden}]`);
+    }
+    if (biasIh.shape.length !== 1 || biasIh.shape[0] !== 4 * hidden) {
+      throw new Error(`lstmStep bias_ih shape ${biasIh.shape} expected [${4 * hidden}]`);
+    }
+    if (biasHh.shape.length !== 1 || biasHh.shape[0] !== 4 * hidden) {
+      throw new Error(`lstmStep bias_hh shape ${biasHh.shape} expected [${4 * hidden}]`);
+    }
+
+    const x = this.materialize();
+    const hM = h.materialize();
+    const cM = c.materialize();
+    const wIh = weightIh.materialize();
+    const wHh = weightHh.materialize();
+    const bIh = biasIh.materialize();
+    const bHh = biasHh.materialize();
+
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, B * 2 * hidden * 4);
+    getDispatcher().runOp(
+      "LSTM_STEP",
+      [x.id, hM.id, cM.id, wIh.id, wHh.id, bIh.id, bHh.id],
+      outId,
+      { batchSize: B, hidden, inSize },
+    );
+    return new Tensor(outId, [B, 2 * hidden], false);
+  }
+
   embedding(indices: Tensor): Tensor {
     if (this.shape.length !== 2) {
       throw new Error(`Embedding weights must be 2D, got ${this.shape}`);

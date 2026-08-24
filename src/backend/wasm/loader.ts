@@ -265,6 +265,20 @@ export interface KernelExports {
     start: number,
     end: number,
   ): void;
+
+  lstm_step(
+    xPtr: number,
+    hPtr: number,
+    cPtr: number,
+    wIhPtr: number,
+    wHhPtr: number,
+    bIhPtr: number,
+    bHhPtr: number,
+    outPtr: number,
+    batchSize: number,
+    hidden: number,
+    inSize: number,
+  ): void;
 }
 
 export interface WasmInstance {

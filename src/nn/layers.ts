@@ -1,4 +1,4 @@
-import { Tensor } from "../frontend/tensor";
+import { Tensor, GradMode } from "../frontend/tensor";
 import { Module } from "./module";
 import { scaledRandn, kaimingStd } from "./init";
 
@@ -438,6 +438,10 @@ export class ConvTranspose1d extends Module {
 // One LSTM step given raw tensor refs. Extracted so BiLSTM can borrow its
 // tensors under PyTorch-native names (weight_ih_l0, ...) without pulling in
 // LSTMCell as a child (which would double-register the params).
+//
+// Inference (GradMode off) uses the fused LSTM_STEP kernel — one dispatch per
+// timestep instead of the ~20 in the composed chain. Training keeps the
+// primitive chain so autograd stays wired.
 function lstmStep(
   x: Tensor,
   h: Tensor,
@@ -450,6 +454,14 @@ function lstmStep(
 ): [Tensor, Tensor] {
   const B = x.shape[0];
   const H = hidden;
+
+  if (!GradMode.enabled) {
+    const packed = x.lstmStep(h, c, weight_ih, weight_hh, bias_ih, bias_hh);
+    const hNew = packed.slice([[0, B], [0, H]]);
+    const cNew = packed.slice([[0, B], [H, 2 * H]]);
+    return [hNew, cNew];
+  }
+
   const gates = x
     .matmul(weight_ih.transpose())
     .add(bias_ih)
