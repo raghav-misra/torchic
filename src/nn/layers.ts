@@ -621,6 +621,36 @@ export class BiLSTM extends Module {
     const wHH = dir === "fwd" ? this.weight_hh_l0 : this.weight_hh_l0_reverse;
     const bIH = dir === "fwd" ? this.bias_ih_l0 : this.bias_ih_l0_reverse;
     const bHH = dir === "fwd" ? this.bias_hh_l0 : this.bias_hh_l0_reverse;
+
+    if (!GradMode.enabled) {
+      // Inference fast path: stack h_new directly into a [B, T, H] buffer via
+      // lstmStepInto -- avoids the per-step packed [B, 2H] alloc + concat.
+      // Double-buffer c because WGSL is not guaranteed safe when a single
+      // storage binding is both read and written in one dispatch at the same
+      // offset (even with different-thread k -- some drivers reorder).
+      const y = Tensor.zeros([B, T, H]);
+      const cA = Tensor.zeros([B, H]);
+      const cB = Tensor.zeros([B, H]);
+      const initH = Tensor.zeros([B, H]);
+      let hPrev: Tensor = initH;
+      let cPrev: Tensor = cA;
+      let cNext: Tensor = cB;
+      const rowElements = B * H;
+      for (let step = 0; step < T; step++) {
+        const t = dir === "fwd" ? step : T - 1 - step;
+        const xt = x.slice([[0, B], [t, t + 1], [0, in_]]).reshape([B, in_]);
+        xt.lstmStepInto(hPrev, cPrev, wIH, wHH, bIH, bHH, y, t * rowElements, cNext, 0);
+        hPrev = y.slice([[0, B], [t, t + 1], [0, H]]).reshape([B, H]);
+        const tmp = cPrev;
+        cPrev = cNext;
+        cNext = tmp;
+      }
+      initH.dispose();
+      cA.dispose();
+      cB.dispose();
+      return y;
+    }
+
     let h = Tensor.zeros([B, H]);
     let c = Tensor.zeros([B, H]);
     const outputs: Tensor[] = new Array(T);

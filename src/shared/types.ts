@@ -45,9 +45,10 @@ export interface OpParams {
   hidden?: number;
   inSize?: number;
   batchSize?: number;
-  // LSTM_STEP direct-write output offsets (bytes into heap).
-  hNewOffBytes?: number;
-  cNewOffBytes?: number;
+  // LSTM_STEP direct-write output offsets (in float32 elements, relative to
+  // the output tensor for h_new and the 8th input tensor for c_new).
+  hNewOffElements?: number;
+  cNewOffElements?: number;
 }
 
 export interface BufferRegion {

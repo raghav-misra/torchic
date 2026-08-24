@@ -485,9 +485,19 @@ function executeKernel(
       const hidden = required(params.hidden, "hidden");
       const inSize = required(params.inSize, "inSize");
       const batchSize = required(params.batchSize, "batchSize");
-      const hNewOffBytes = params.hNewOffBytes ?? output.offset;
-      const cNewOffBytes = params.cNewOffBytes ?? (output.offset + batchSize * hidden * 4);
-      // Shared heap; hOut/cOut views cover a single [B, H] region each.
+      // Direct-write vs packed: if an 8th input is present, it's cOut; use
+      // relative element offsets from params. Otherwise fall back to packed
+      // [B, 2H] with h at output.offset, c at output.offset + B*H*4.
+      let hNewOffBytes: number;
+      let cNewOffBytes: number;
+      if (inputs.length > 7) {
+        const cOut = inputs[7];
+        hNewOffBytes = output.offset + (params.hNewOffElements ?? 0) * 4;
+        cNewOffBytes = cOut.offset + (params.cNewOffElements ?? 0) * 4;
+      } else {
+        hNewOffBytes = output.offset;
+        cNewOffBytes = output.offset + batchSize * hidden * 4;
+      }
       const hOutView = new Float32Array(buf, hNewOffBytes, batchSize * hidden);
       const cOutView = new Float32Array(buf, cNewOffBytes, batchSize * hidden);
       lstm.lstm_step(

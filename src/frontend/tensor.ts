@@ -747,7 +747,7 @@ export class Tensor {
   }
 
   // Direct-write variant: writes h_new and c_new into pre-allocated tensors
-  // at the given byte offsets. No new tensor allocation. Used by BiLSTM to
+  // at the given element offsets. No new tensor allocation. Used by BiLSTM to
   // stack outputs into a [B, T, H] buffer without a per-step concat.
   lstmStepInto(
     h: Tensor,
@@ -757,9 +757,9 @@ export class Tensor {
     biasIh: Tensor,
     biasHh: Tensor,
     hOut: Tensor,
-    hOutOffsetBytes: number,
+    hOutOffsetElements: number,
     cOut: Tensor,
-    cOutOffsetBytes: number,
+    cOutOffsetElements: number,
   ): void {
     if (this.shape.length !== 2) throw new Error(`lstmStepInto x must be [B, in_size], got ${this.shape}`);
     const [B, inSize] = this.shape;
@@ -773,18 +773,19 @@ export class Tensor {
     const bIh = biasIh.materialize();
     const bHh = biasHh.materialize();
 
-    // Reuse hOut as the "output" tensor for lifecycle bookkeeping; the actual
-    // write offsets come from params.
+    // The dispatcher pulls hOut's real heap offset from its registry (Tensor.offset
+    // on the JS side is 0 for freshly-allocated tensors). cOut is passed as an 8th
+    // "input" so the same lookup gives its real offset too.
     getDispatcher().runOp(
       "LSTM_STEP",
-      [x.id, hM.id, cM.id, wIh.id, wHh.id, bIh.id, bHh.id],
+      [x.id, hM.id, cM.id, wIh.id, wHh.id, bIh.id, bHh.id, cOut.id],
       hOut.id,
       {
         batchSize: B,
         hidden,
         inSize,
-        hNewOffBytes: hOut.offset + hOutOffsetBytes,
-        cNewOffBytes: cOut.offset + cOutOffsetBytes,
+        hNewOffElements: hOutOffsetElements,
+        cNewOffElements: cOutOffsetElements,
       },
     );
     if (x !== this) x.dispose();

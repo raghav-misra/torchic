@@ -665,8 +665,16 @@ function executeKernel(
     const hidden = required(params.hidden, "hidden");
     const inSize = required(params.inSize, "inSize");
     const batchSize = required(params.batchSize, "batchSize");
-    const hOutPtr = params.hNewOffBytes ?? output.offset;
-    const cOutPtr = params.cNewOffBytes ?? (output.offset + batchSize * hidden * 4);
+    let hOutPtr: number;
+    let cOutPtr: number;
+    if (inputs.length > 7) {
+      const cOut = inputs[7];
+      hOutPtr = output.offset + (params.hNewOffElements ?? 0) * 4;
+      cOutPtr = cOut.offset + (params.cNewOffElements ?? 0) * 4;
+    } else {
+      hOutPtr = output.offset;
+      cOutPtr = output.offset + batchSize * hidden * 4;
+    }
     exports.lstm_step(
       inputs[0].offset, inputs[1].offset, inputs[2].offset,
       inputs[3].offset, inputs[4].offset, inputs[5].offset, inputs[6].offset,

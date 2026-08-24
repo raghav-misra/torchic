@@ -584,12 +584,15 @@ export class WebGPUDispatcher implements Dispatcher {
     const hidden = required(params.hidden, "hidden");
     const inSize = required(params.inSize, "inSize");
     const batchSize = required(params.batchSize, "batchSize");
-    const [x, h, c, wIh, wHh, bIh, bHh] = inputs;
-    // If callers provide split output offsets (byte offsets into heap) we
-    // write h_new and c_new to two distinct regions -- lets BiLSTM stack
-    // outputs directly into a preallocated [B, T, H] buffer.
-    const hNewOff = params.hNewOffBytes ?? out.offset;
-    const cNewOff = params.cNewOffBytes ?? (out.offset + batchSize * hidden * 4);
+    const [x, h, c, wIh, wHh, bIh, bHh, cOut] = inputs;
+    // Direct-write path: caller provides h_new relative element offset (into
+    // the output tensor) and an 8th "input" tensor whose registry-tracked
+    // offset is the c_new destination, plus its own relative element offset.
+    // Fallback packed layout: h at out.offset, c at out.offset + B*H*4.
+    const hNewOff = out.offset + (params.hNewOffElements ?? 0) * 4;
+    const cNewOff = cOut
+      ? cOut.offset + (params.cNewOffElements ?? 0) * 4
+      : out.offset + batchSize * hidden * 4;
     const u = new Uint32Array([
       x.offset >>> 2,
       h.offset >>> 2,
