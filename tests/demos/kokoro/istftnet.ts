@@ -406,7 +406,7 @@ export class Generator extends Module {
     x: Tensor,
     s: Tensor,
     f0: Tensor,
-    onStage?: (name: string) => void,
+    onStage?: (name: string) => void | Promise<void>,
     onStats?: (name: string, t: Tensor) => Promise<void> | void,
   ): Promise<Float32Array> {
     const stage = onStage ?? ((_: string) => undefined);
@@ -416,7 +416,7 @@ export class Generator extends Module {
     const [B] = f0.shape;
     if (B !== 1) throw new Error(`Generator: B=1 only for now, got ${B}`);
 
-    stage("gen.source");
+    await stage("gen.source");
     const f0Flat = await f0.toArray();
     const T_f0 = f0.shape[1];
     const L_source = T_f0 * this.upsampleScale;
@@ -428,7 +428,7 @@ export class Generator extends Module {
     // sineMerge: [B, L_source, 1] -> [B, L_source]
     const harSource = await sineMerge.toArray();
     sineMerge.dispose();
-    stage("gen.stft");
+    await stage("gen.stft");
     const { magnitude, phase, frames } = stftHann(harSource, this.postNFFT, this.hopLength);
     const nBins = (this.postNFFT >> 1) + 1;
     // Interleave [mag; phase] along channel axis -> [1, 2*nBins, frames]
@@ -440,7 +440,7 @@ export class Generator extends Module {
     let h = x;
     await stat("gen.h_in", h);
     for (let i = 0; i < this.numUpsamples; i++) {
-      stage(`gen.up[${i}]`);
+      await stage(`gen.up[${i}]`);
       const hRelu = h.leaky_relu(LEAKY_SLOPE);
       if (h !== x) h.dispose();
 
@@ -479,7 +479,7 @@ export class Generator extends Module {
       inv.dispose();
       await stat(`gen.up[${i}].out`, h);
     }
-    stage("gen.post");
+    await stage("gen.post");
     // Reference uses F.leaky_relu(x) — DEFAULT slope 0.01 — for this final
     // activation, not the 0.1 used inside the upsample loop.
     const hFinal = h.leaky_relu(0.01);
@@ -551,14 +551,14 @@ export class Decoder extends Module {
     F0_curve: Tensor,
     N: Tensor,
     s: Tensor,
-    onStage?: (name: string) => void,
+    onStage?: (name: string) => void | Promise<void>,
     onStats?: (name: string, t: Tensor) => Promise<void> | void,
   ): Promise<Float32Array> {
     const stage = onStage ?? ((_: string) => undefined);
     const stat = async (name: string, t: Tensor): Promise<void> => {
       if (onStats) await onStats(name, t);
     };
-    stage("dec.f0_n_conv");
+    await stage("dec.f0_n_conv");
     const F0In = F0_curve.reshape([F0_curve.shape[0], 1, F0_curve.shape[1]]);
     const NIn = N.reshape([N.shape[0], 1, N.shape[1]]);
     const F0 = this.F0_conv.forward(F0In);
@@ -566,7 +566,7 @@ export class Decoder extends Module {
     await stat("dec.F0_conv", F0);
     await stat("dec.N_conv", N2);
 
-    stage("dec.encode");
+    await stage("dec.encode");
     const xCat = Tensor.concat([asr, F0, N2], 1);
     let x = this.encode.forward(xCat, s);
     xCat.dispose();
@@ -577,7 +577,7 @@ export class Decoder extends Module {
     let addRes = true;
     let blockIdx = 0;
     for (const block of this.decode) {
-      stage(`dec.block[${blockIdx}]`);
+      await stage(`dec.block[${blockIdx}]`);
       let blockIn = x;
       if (addRes) {
         blockIn = Tensor.concat([x, asrRes, F0, N2], 1);
@@ -594,10 +594,10 @@ export class Decoder extends Module {
     F0.dispose();
     N2.dispose();
 
-    stage("dec.generator");
+    await stage("dec.generator");
     const audio = await this.generator.forward(x, s, F0_curve, onStage, onStats);
     x.dispose();
-    stage("dec.done");
+    await stage("dec.done");
     return audio;
   }
 }

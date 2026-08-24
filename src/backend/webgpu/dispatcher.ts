@@ -105,6 +105,10 @@ export class WebGPUDispatcher implements Dispatcher {
     this.opCounts.clear();
   }
 
+  async sync(): Promise<void> {
+    await this.inflight;
+  }
+
   allocate(tensorId: TensorId, size: number): void {
     const alloc = this.allocator;
     if (!alloc) throw new Error("Dispatcher not initialized");
@@ -177,8 +181,8 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "EMBEDDING_BACKWARD")
       return this.dispatchEmbeddingBackward(pipeline, im, outMeta, params);
     if (op === "SUM_AXIS") return this.dispatchSumAxis(pipeline, im, outMeta, params);
-    if (op === "CONV1D" || op === "CONV_TRANSPOSE_1D")
-      return this.dispatchConv1d(pipeline, im, outMeta, params);
+    if (op === "CONV1D") return this.dispatchConv1d(pipeline, im, outMeta, params);
+    if (op === "CONV_TRANSPOSE_1D") return this.dispatchConvTranspose1d(pipeline, im, outMeta, params);
     if (op === "CONCAT_SLAB") return this.dispatchConcatSlab(pipeline, im, outMeta, params);
     if (op === "LSTM_STEP") return this.dispatchLstmStep(pipeline, im, outMeta, params);
 
@@ -553,7 +557,45 @@ export class WebGPUDispatcher implements Dispatcher {
     const dilation = required(params.dilation, "dilation");
     const groups = params.groups ?? 1;
     const hasBias = !!params.hasBias;
-    // ConvU layout matches src/backend/webgpu/shaders/conv.wgsl.
+    const u = new Uint32Array(15);
+    u[0] = inputs[0].offset >>> 2;
+    u[1] = inputs[1].offset >>> 2;
+    u[2] = hasBias ? inputs[2].offset >>> 2 : 0;
+    u[3] = out.offset >>> 2;
+    u[4] = hasBias ? 1 : 0;
+    u[5] = B;
+    u[6] = Cin;
+    u[7] = Lin;
+    u[8] = Cout;
+    u[9] = K;
+    u[10] = Lout;
+    const iview = new Int32Array(u.buffer);
+    iview[11] = stride;
+    iview[12] = padding;
+    iview[13] = dilation;
+    u[14] = groups;
+    // 2D dispatch: (Lout_tiles, B*Cout). Each workgroup handles one (b, co) row
+    // and cooperatively loads the weight[co, :, :] tile into shared memory.
+    this.encodeAndSubmit(pipeline, u, Math.ceil(Lout / 256), B * Cout);
+  }
+
+  private dispatchConvTranspose1d(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const B = required(params.batchCount, "batchCount");
+    const Cin = required(params.Cin, "Cin");
+    const Lin = required(params.Lin, "Lin");
+    const Cout = required(params.Cout, "Cout");
+    const K = required(params.K, "K");
+    const Lout = required(params.Lout, "Lout");
+    const stride = required(params.stride, "stride");
+    const padding = required(params.padding, "padding");
+    const dilation = required(params.dilation, "dilation");
+    const groups = params.groups ?? 1;
+    const hasBias = !!params.hasBias;
     const u = new Uint32Array(15);
     u[0] = inputs[0].offset >>> 2;
     u[1] = inputs[1].offset >>> 2;

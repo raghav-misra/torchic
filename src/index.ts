@@ -1,6 +1,6 @@
 import { Tensor, noGrad, noGradSync, trackTensors } from "./frontend/tensor";
 import { oneHot, oneHotBatch, crossEntropy } from "./frontend/helpers";
-import { init, shutdown, memoryStats, opCountSnapshot, resetOpCounts } from "./frontend/dispatcher";
+import { init, shutdown, memoryStats, opCountSnapshot, resetOpCounts, sync } from "./frontend/dispatcher";
 
 const torchic = {
   Tensor,
@@ -12,11 +12,12 @@ const torchic = {
   memoryStats,
   opCountSnapshot,
   resetOpCounts,
+  sync,
 };
 
 export default torchic;
 
-export { Tensor, noGrad, noGradSync, trackTensors, oneHot, oneHotBatch, crossEntropy, init, shutdown, memoryStats, opCountSnapshot, resetOpCounts };
+export { Tensor, noGrad, noGradSync, trackTensors, oneHot, oneHotBatch, crossEntropy, init, shutdown, memoryStats, opCountSnapshot, resetOpCounts, sync };
 export * as nn from "./nn";
 export * as optim from "./optim";
 export * as dsp from "./dsp";

@@ -29,4 +29,5 @@ export interface Dispatcher {
   memoryStats?(): MemoryStats;
   opCountSnapshot?(): Record<string, number>;
   resetOpCounts?(): void;
+  sync?(): Promise<void>;
 }

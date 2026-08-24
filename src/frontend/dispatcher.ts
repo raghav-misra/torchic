@@ -28,6 +28,10 @@ export function resetOpCounts(): void {
   dispatcher?.resetOpCounts?.();
 }
 
+export async function sync(): Promise<void> {
+  await dispatcher?.sync?.();
+}
+
 interface InitOptions {
   backend: "workers" | "wasm" | "webgpu";
   threadCount?: number;

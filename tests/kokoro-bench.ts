@@ -1,4 +1,4 @@
-import { Tensor, init, noGrad, nn, memoryStats, opCountSnapshot, resetOpCounts } from "../src/index";
+import { Tensor, init, noGrad, nn, opCountSnapshot, resetOpCounts, sync } from "../src/index";
 import { Kokoro } from "./demos/kokoro/index";
 import SAMPLES_JSON from "./demos/kokoro/samples.json";
 
@@ -96,22 +96,22 @@ async function main(): Promise<void> {
   log(`synthesizing...`);
   resetOpCounts();
   const started = performance.now();
+  // Per-stage timing: sync the GPU at each boundary and record wall-clock
+  // delta since the previous sync. Turns "burn time until forward returns"
+  // into a per-stage budget breakdown, at the cost of losing async overlap.
+  let lastStageTime = started;
+  const stageTimings: [string, number][] = [];
+  const timedStage = async (name: string): Promise<void> => {
+    if (!verbose) return;
+    await sync();
+    const now = performance.now();
+    stageTimings.push([name, now - lastStageTime]);
+    lastStageTime = now;
+  };
   const { audio, predDur } = await noGrad(() =>
     model.forward(inputIds, refS, {
       speed: 1,
-      onStage: (name: string) => {
-        if (!verbose) {
-          log(`stage: ${name}`);
-          return;
-        }
-        const m = memoryStats();
-        if (m) {
-          const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
-          log(`stage: ${name}  used=${mb(m.used)}MB free=${mb(m.free)}MB largestFree=${mb(m.largestFree)}MB frags=${m.fragments}`);
-        } else {
-          log(`stage: ${name}`);
-        }
-      },
+      onStage: verbose ? timedStage : (name: string) => log(`stage: ${name}`),
       onStats: verbose
         ? async (name: string, stats) => {
             const s = stats;
@@ -141,6 +141,12 @@ async function main(): Promise<void> {
     log(`ops: ${total} dispatches total`);
     for (const [name, count] of sorted.slice(0, 20)) {
       log(`  ${name.padEnd(28)} ${String(count).padStart(6)}`);
+    }
+  }
+  if (verbose && stageTimings.length) {
+    log(`stage timing (per-stage GPU-sync deltas):`);
+    for (const [name, dt] of stageTimings) {
+      log(`  ${name.padEnd(28)} ${dt.toFixed(1).padStart(8)} ms`);
     }
   }
 
