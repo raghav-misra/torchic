@@ -55,24 +55,41 @@ export function fft(real: Float32Array, imag: Float32Array): void {
   }
 }
 
-// O(n²) DFT/iDFT. Only used when n is not a power of 2; the twiddle table is
-// computed once per call, which is fine for the small sizes (n_fft=20) that
-// need this path.
+// O(n²) DFT/iDFT. Only used when n is not a power of 2; twiddle table is
+// cached per (n, direction) so istft's per-frame iDFT loop reuses it.
+const twiddleCache = new Map<string, { cr: Float32Array; ci: Float32Array }>();
 function dftDirect(real: Float32Array, imag: Float32Array, forward: boolean): void {
   const n = real.length;
-  const sign = forward ? -1 : 1;
+  const key = `${n}:${forward ? 1 : 0}`;
+  let tw = twiddleCache.get(key);
+  if (!tw) {
+    const cr = new Float32Array(n * n);
+    const ci = new Float32Array(n * n);
+    const base = ((forward ? -1 : 1) * 2 * Math.PI) / n;
+    for (let k = 0; k < n; k++) {
+      for (let j = 0; j < n; j++) {
+        const angle = base * k * j;
+        cr[k * n + j] = Math.cos(angle);
+        ci[k * n + j] = Math.sin(angle);
+      }
+    }
+    tw = { cr, ci };
+    twiddleCache.set(key, tw);
+  }
+  const { cr, ci } = tw;
   const outR = new Float32Array(n);
   const outI = new Float32Array(n);
-  const base = (sign * 2 * Math.PI) / n;
   for (let k = 0; k < n; k++) {
     let sumR = 0;
     let sumI = 0;
+    const base = k * n;
     for (let j = 0; j < n; j++) {
-      const angle = base * k * j;
-      const wr = Math.cos(angle);
-      const wi = Math.sin(angle);
-      sumR += real[j] * wr - imag[j] * wi;
-      sumI += real[j] * wi + imag[j] * wr;
+      const wr = cr[base + j];
+      const wi = ci[base + j];
+      const rj = real[j];
+      const ij = imag[j];
+      sumR += rj * wr - ij * wi;
+      sumI += rj * wi + ij * wr;
     }
     outR[k] = sumR;
     outI[k] = sumI;
