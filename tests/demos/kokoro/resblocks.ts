@@ -63,24 +63,49 @@ export class AdainResBlk1d extends Module {
   }
 
   private shortcut(x: Tensor): Tensor {
+    // Owns the returned tensor unless it's just `x` (caller keeps ownership).
     let out = x;
-    if (this.pool) out = this.pool.forward(out);
-    if (this.conv1x1) out = this.conv1x1.forward(out);
+    if (this.pool) {
+      const pooled = this.pool.forward(out);
+      if (out !== x) out.dispose();
+      out = pooled;
+    }
+    if (this.conv1x1) {
+      const projected = this.conv1x1.forward(out);
+      if (out !== x) out.dispose();
+      out = projected;
+    }
     return out;
   }
 
   private residual(x: Tensor, s: Tensor): Tensor {
-    let out = this.norm1.forward(x, s).leaky_relu(this.actvSlope);
-    if (this.pool) out = this.pool.forward(out);
-    out = this.conv1.forward(out);
-    out = this.norm2.forward(out, s).leaky_relu(this.actvSlope);
-    out = this.conv2.forward(out);
-    return out;
+    const normed1 = this.norm1.forward(x, s);
+    let out = normed1.leaky_relu(this.actvSlope);
+    normed1.dispose();
+    if (this.pool) {
+      const pooled = this.pool.forward(out);
+      out.dispose();
+      out = pooled;
+    }
+    const conv1Out = this.conv1.forward(out);
+    out.dispose();
+    const normed2 = this.norm2.forward(conv1Out, s);
+    conv1Out.dispose();
+    const activated2 = normed2.leaky_relu(this.actvSlope);
+    normed2.dispose();
+    const conv2Out = this.conv2.forward(activated2);
+    activated2.dispose();
+    return conv2Out;
   }
 
   forward(x: Tensor, s: Tensor): Tensor {
     const r = this.residual(x, s);
     const sc = this.shortcut(x);
-    return r.add(sc).mul(this.invSqrt2);
+    const added = r.add(sc);
+    r.dispose();
+    if (sc !== x) sc.dispose();
+    const out = added.mul(this.invSqrt2);
+    added.dispose();
+    return out;
   }
 }
