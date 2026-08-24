@@ -16,7 +16,7 @@ struct ConcatU {
 @group(0) @binding(0) var<storage, read_write> heap: array<f32>;
 @group(0) @binding(1) var<uniform> u: ConcatU;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(256)
 fn concat_slab(@builtin(global_invocation_id) gid: vec3<u32>) {
   let idx = gid.x;
   if (idx >= u.total) { return; }

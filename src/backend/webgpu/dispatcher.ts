@@ -1,4 +1,4 @@
-import type { Dispatcher } from "../dispatcher";
+import type { Dispatcher, MemoryStats } from "../dispatcher";
 import { MemoryAllocator } from "../memory";
 import type { OpParams, TensorId } from "../../shared/types";
 import { requestContext } from "./device";
@@ -89,6 +89,11 @@ export class WebGPUDispatcher implements Dispatcher {
 
   nextTensorId(): TensorId {
     return `${this.instanceTag}_t_${this.tensorIdCounter++}`;
+  }
+
+  memoryStats(): MemoryStats {
+    if (!this.allocator) return { total: 0, used: 0, free: 0, largestFree: 0, fragments: 0 };
+    return this.allocator.getStats();
   }
 
   allocate(tensorId: TensorId, size: number): void {
@@ -557,7 +562,7 @@ export class WebGPUDispatcher implements Dispatcher {
     iview[13] = dilation;
     u[14] = groups;
     const total = B * Cout * Lout;
-    this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(total / 256), 1);
   }
 
   private dispatchLstmStep(
@@ -610,7 +615,7 @@ export class WebGPUDispatcher implements Dispatcher {
       innerSize,
       total,
     ]);
-    this.encodeAndSubmit(pipeline, u, Math.ceil(total / 64), 1);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(total / 256), 1);
   }
 
   private dispatchEmbedding(

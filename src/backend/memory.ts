@@ -86,6 +86,25 @@ export class MemoryAllocator {
   }
 
   private allocLarge(size: number): number {
+    const off = this.tryAllocLarge(size);
+    if (off !== -1) return off;
+
+    // Segregated buckets never coalesce, so long-running loops that carve
+    // many small-then-large allocations can starve the large free-list even
+    // with plenty of total free memory. Drain the bucket stacks back into
+    // the large list (which coalesces) and retry once before giving up.
+    this.drainBucketsToLarge();
+    const retry = this.tryAllocLarge(size);
+    if (retry !== -1) return retry;
+
+    const s = this.getStats();
+    throw new Error(
+      `Out of memory: requested ${size} bytes, but no block large enough found. ` +
+        `heap=${this.totalSize} used=${s.used} free=${s.free} largestFree=${s.largestFree} fragments=${s.fragments}`,
+    );
+  }
+
+  private tryAllocLarge(size: number): number {
     for (let i = 0; i < this.largeList.length; i++) {
       const block = this.largeList[i];
       if (block.size >= size) {
@@ -99,10 +118,17 @@ export class MemoryAllocator {
         return offset;
       }
     }
+    return -1;
+  }
 
-    throw new Error(
-      `Out of memory: requested ${size} bytes, but no block large enough found.`,
-    );
+  private drainBucketsToLarge(): void {
+    for (let bi = 0; bi < NUM_BUCKETS; bi++) {
+      const stack = this.buckets[bi];
+      if (stack.length === 0) continue;
+      const bucketSize = 1 << (bi + MIN_BUCKET_BITS);
+      for (const offset of stack) this.freeLarge(offset, bucketSize);
+      stack.length = 0;
+    }
   }
 
   private freeLarge(offset: number, size: number): void {
@@ -145,10 +171,13 @@ export class MemoryAllocator {
     }
     const largeFree = this.largeList.reduce((acc, b) => acc + b.size, 0);
     const freeBytes = bucketFree + largeFree;
+    let largest = 0;
+    for (const b of this.largeList) if (b.size > largest) largest = b.size;
     return {
       total: this.totalSize,
       used: this.totalSize - freeBytes,
       free: freeBytes,
+      largestFree: largest,
       fragments: this.largeList.length,
     };
   }

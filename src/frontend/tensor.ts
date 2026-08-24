@@ -312,6 +312,7 @@ export class Tensor {
         axisOffset,
         innerSize,
       });
+      if (src !== t) src.dispose();
       axisOffset += inAxisSize;
     }
     return new Tensor(outId, outShape, false);
@@ -558,6 +559,9 @@ export class Tensor {
     getDispatcher().allocate(outId, batchCount * m * n * 4);
     getDispatcher().runOp("BMM", [a.id, b.id], outId, { batchCount, m, n, k });
 
+    if (a !== this) a.dispose();
+    if (b !== other) b.dispose();
+
     const shouldGrad = GradMode.enabled && (this.requiresGrad || other.requiresGrad);
     const out = new Tensor(outId, outShape, shouldGrad);
     if (shouldGrad) {
@@ -614,6 +618,9 @@ export class Tensor {
       groups,
       hasBias: !!b,
     });
+    if (x !== this) x.dispose();
+    if (w !== weight) w.dispose();
+    if (b && bias && b !== bias) b.dispose();
     return new Tensor(outId, [B, Cout, Lout], false);
   }
 
@@ -668,6 +675,9 @@ export class Tensor {
       groups,
       hasBias: !!b,
     });
+    if (x !== this) x.dispose();
+    if (w !== weight) w.dispose();
+    if (b && bias && b !== bias) b.dispose();
     return new Tensor(outId, [B, Cout, Lout], false);
   }
 
@@ -722,6 +732,13 @@ export class Tensor {
       outId,
       { batchSize: B, hidden, inSize },
     );
+    if (x !== this) x.dispose();
+    if (hM !== h) hM.dispose();
+    if (cM !== c) cM.dispose();
+    if (wIh !== weightIh) wIh.dispose();
+    if (wHh !== weightHh) wHh.dispose();
+    if (bIh !== biasIh) bIh.dispose();
+    if (bHh !== biasHh) bHh.dispose();
     return new Tensor(outId, [B, 2 * hidden], false);
   }
 
@@ -1142,6 +1159,7 @@ export class Tensor {
 
       getDispatcher().allocate(outId, size);
       getDispatcher().runOp("SUM", [input.id], outId);
+      if (input !== this) input.dispose();
 
       const shouldGrad = GradMode.enabled && this.requiresGrad;
       const out = new Tensor(outId, [1], shouldGrad);
@@ -1172,6 +1190,7 @@ export class Tensor {
       strides: input.strides,
       axis,
     });
+    if (input !== this) input.dispose();
 
     const shouldGrad = GradMode.enabled && this.requiresGrad;
     const out = new Tensor(outId, finalShape, shouldGrad);
@@ -1206,9 +1225,11 @@ export class Tensor {
       const size = input.numElements() * 4;
       getDispatcher().allocate(outId, size);
       getDispatcher().runOp("SOFTMAX", [input.id], outId, { m, n });
+      const outShape = input.shape;
+      if (input !== this) input.dispose();
 
       const shouldGrad = GradMode.enabled && this.requiresGrad;
-      const out = new Tensor(outId, input.shape, shouldGrad);
+      const out = new Tensor(outId, outShape, shouldGrad);
       if (shouldGrad) {
         out.op = "SOFTMAX";
         out.prev = [this];

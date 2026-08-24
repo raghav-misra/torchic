@@ -1,7 +1,7 @@
 import { WorkerDispatcher } from "../backend/workers/dispatcher";
 import { WasmDispatcher } from "../backend/wasm/dispatcher";
 import { WebGPUDispatcher } from "../backend/webgpu/dispatcher";
-import type { Dispatcher } from "../backend/dispatcher";
+import type { Dispatcher, MemoryStats } from "../backend/dispatcher";
 
 let dispatcher: Dispatcher | null = null;
 
@@ -14,6 +14,10 @@ export function getDispatcher(): Dispatcher {
 
 export function isDispatcherReady(): boolean {
   return dispatcher !== null;
+}
+
+export function memoryStats(): MemoryStats | null {
+  return dispatcher?.memoryStats?.() ?? null;
 }
 
 interface InitOptions {

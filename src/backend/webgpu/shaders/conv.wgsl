@@ -26,7 +26,7 @@ struct ConvU {
 @group(0) @binding(0) var<storage, read_write> heap: array<f32>;
 @group(0) @binding(1) var<uniform> u: ConvU;
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(256)
 fn conv1d(@builtin(global_invocation_id) gid: vec3<u32>) {
   let total = u.B * u.Cout * u.Lout;
   let idx = gid.x;
@@ -63,7 +63,7 @@ fn conv1d(@builtin(global_invocation_id) gid: vec3<u32>) {
   heap[u.output_off + idx] = sum;
 }
 
-@compute @workgroup_size(64)
+@compute @workgroup_size(256)
 fn conv_transpose1d(@builtin(global_invocation_id) gid: vec3<u32>) {
   let total = u.B * u.Cout * u.Lout;
   let idx = gid.x;

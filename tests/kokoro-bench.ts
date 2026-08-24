@@ -1,4 +1,4 @@
-import { Tensor, init, noGrad, nn } from "../src/index";
+import { Tensor, init, noGrad, nn, memoryStats } from "../src/index";
 import { Kokoro } from "./demos/kokoro/index";
 import SAMPLES_JSON from "./demos/kokoro/samples.json";
 
@@ -99,7 +99,17 @@ async function main(): Promise<void> {
     model.forward(inputIds, refS, {
       speed: 1,
       onStage: (name: string) => {
-        log(`stage: ${name}`);
+        if (!verbose) {
+          log(`stage: ${name}`);
+          return;
+        }
+        const m = memoryStats();
+        if (m) {
+          const mb = (n: number) => (n / 1024 / 1024).toFixed(1);
+          log(`stage: ${name}  used=${mb(m.used)}MB free=${mb(m.free)}MB largestFree=${mb(m.largestFree)}MB frags=${m.fragments}`);
+        } else {
+          log(`stage: ${name}`);
+        }
       },
       onStats: verbose
         ? async (name: string, stats) => {

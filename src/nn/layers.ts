@@ -131,9 +131,22 @@ export class LayerNorm extends Module {
     const axis = x.shape.length - 1;
     const mean = x.mean(axis, true);
     const centered = x.sub(mean);
-    const variance = centered.mul(centered).mean(axis, true);
-    const invStd = variance.add(this.eps).rsqrt();
-    return centered.mul(invStd).mul(this.weight).add(this.bias);
+    mean.dispose();
+    const sq = centered.mul(centered);
+    const variance = sq.mean(axis, true);
+    sq.dispose();
+    const varPlusEps = variance.add(this.eps);
+    variance.dispose();
+    const invStd = varPlusEps.rsqrt();
+    varPlusEps.dispose();
+    const scaled = centered.mul(invStd);
+    centered.dispose();
+    invStd.dispose();
+    const gained = scaled.mul(this.weight);
+    scaled.dispose();
+    const out = gained.add(this.bias);
+    gained.dispose();
+    return out;
   }
 }
 
@@ -172,22 +185,35 @@ export class GroupNorm extends Module {
     let spatial = 1;
     for (let i = 2; i < shape.length; i++) spatial *= shape[i];
 
-    // Normalize over (Cg * spatial). Reshape to [B, G, Cg*spatial], mean-var
-    // along last axis, then reshape back.
     const grouped = x.reshape([B, G, Cg * spatial]);
     const mean = grouped.mean(-1, true);
     const centered = grouped.sub(mean);
-    const variance = centered.mul(centered).mean(-1, true);
-    const invStd = variance.add(this.eps).rsqrt();
-    const norm = centered.mul(invStd).reshape(shape);
+    grouped.dispose();
+    mean.dispose();
+    const sq = centered.mul(centered);
+    const variance = sq.mean(-1, true);
+    sq.dispose();
+    const varPlusEps = variance.add(this.eps);
+    variance.dispose();
+    const invStd = varPlusEps.rsqrt();
+    varPlusEps.dispose();
+    const scaled = centered.mul(invStd);
+    centered.dispose();
+    invStd.dispose();
+    const norm = scaled.reshape(shape);
+    scaled.dispose();
 
-    // Broadcast per-channel affine. weight/bias are [C]; reshape to [1, C, 1, ...]
-    // so they broadcast across batch and spatial.
     const affineShape = new Array(shape.length).fill(1);
     affineShape[1] = C;
     const w = this.weight.reshape(affineShape);
     const b = this.bias.reshape(affineShape);
-    return norm.mul(w).add(b);
+    const gained = norm.mul(w);
+    norm.dispose();
+    w.dispose();
+    const out = gained.add(b);
+    gained.dispose();
+    b.dispose();
+    return out;
   }
 }
 
@@ -218,16 +244,29 @@ export class InstanceNorm1d extends Module {
     if (x.shape.length !== 3) throw new Error(`InstanceNorm1d input must be [B, C, L], got ${x.shape}`);
     const [_B, C, _L] = x.shape;
     if (C !== this.numFeatures) throw new Error(`InstanceNorm1d expected C=${this.numFeatures}, got ${C}`);
-    // Normalize over the last dim (L). Mean/var per (B, C, :).
     const mean = x.mean(-1, true);
     const centered = x.sub(mean);
-    const variance = centered.mul(centered).mean(-1, true);
-    const invStd = variance.add(this.eps).rsqrt();
+    mean.dispose();
+    const sq = centered.mul(centered);
+    const variance = sq.mean(-1, true);
+    sq.dispose();
+    const varPlusEps = variance.add(this.eps);
+    variance.dispose();
+    const invStd = varPlusEps.rsqrt();
+    varPlusEps.dispose();
     const norm = centered.mul(invStd);
+    centered.dispose();
+    invStd.dispose();
     if (this.affine && this.weight && this.bias) {
       const w = this.weight.reshape([1, C, 1]);
       const b = this.bias.reshape([1, C, 1]);
-      return norm.mul(w).add(b);
+      const gained = norm.mul(w);
+      norm.dispose();
+      w.dispose();
+      const out = gained.add(b);
+      gained.dispose();
+      b.dispose();
+      return out;
     }
     return norm;
   }

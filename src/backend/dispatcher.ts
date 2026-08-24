@@ -1,5 +1,13 @@
 import type { OpParams, TensorId } from "../shared/types";
 
+export interface MemoryStats {
+  total: number;
+  used: number;
+  free: number;
+  largestFree: number;
+  fragments: number;
+}
+
 export interface Dispatcher {
   init(threadCount?: number, memorySizeMB?: number): Promise<void>;
   shutdown(): void;
@@ -17,4 +25,6 @@ export interface Dispatcher {
   read(tensorId: TensorId): Promise<Float32Array>;
   readView(tensorId: TensorId): Promise<Float32Array>;
   readValue(tensorId: TensorId, offset: number): Promise<number>;
+
+  memoryStats?(): MemoryStats;
 }
