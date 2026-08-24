@@ -12,6 +12,22 @@ import { PLBERT } from "./plbert";
 import type { KokoroConfig } from "./config";
 import { KOKORO_CONFIG } from "./config";
 
+export interface TensorStats { shape: number[]; mean: number; std: number; min: number; max: number }
+
+async function tensorStats(t: Tensor): Promise<TensorStats> {
+  const flat = await t.toArray();
+  let sum = 0, sq = 0, mn = Infinity, mx = -Infinity;
+  for (const v of flat) {
+    sum += v;
+    sq += v * v;
+    if (v < mn) mn = v;
+    if (v > mx) mx = v;
+  }
+  const n = flat.length;
+  const mean = sum / n;
+  return { shape: t.shape.slice(), mean, std: Math.sqrt(Math.max(0, sq / n - mean * mean)), min: mn, max: mx };
+}
+
 export class Kokoro extends Module {
   bert: PLBERT;
   bert_encoder: Linear;
@@ -52,8 +68,8 @@ export class Kokoro extends Module {
   async forward(
     inputIds: Tensor,
     refS: Tensor,
-    opts: { speed?: number; maxDurPerPhoneme?: number } = {},
-  ): Promise<{ audio: Float32Array; predDur: number[] }> {
+    opts: { speed?: number; maxDurPerPhoneme?: number; onStats?: (name: string, stats: TensorStats) => void } = {},
+  ): Promise<{ audio: Float32Array; predDur: number[]; rawDur: number[] }> {
     if (inputIds.shape.length !== 2) {
       throw new Error(`Kokoro.forward: input_ids must be [B, T], got ${inputIds.shape}`);
     }
@@ -62,6 +78,10 @@ export class Kokoro extends Module {
     }
     const speed = opts.speed ?? 1;
     const maxDur = opts.maxDurPerPhoneme ?? Infinity;
+    const dumpStats = async (name: string, t: Tensor): Promise<void> => {
+      if (!opts.onStats) return;
+      opts.onStats(name, await tensorStats(t));
+    };
 
     const B = 1;
     const T = inputIds.shape[1];
@@ -70,14 +90,21 @@ export class Kokoro extends Module {
     const sDecoder = refS.slice([[0, B], [0, styleDim]]);
     const sProsody = refS.slice([[0, B], [styleDim, 2 * styleDim]]);
 
-    const bertOut = this.bert.forward(inputIds);
-    const dEn = this.bert_encoder.forward(bertOut).transpose(-1, -2);
+    const bertOut = await this.bert.forward(inputIds, undefined, async (i, h) => {
+      const name = i === -1 ? "embeddings" : `bert_layer_${i}`;
+      if (opts.onStats) opts.onStats(name, await tensorStats(h));
+    });
+    await dumpStats("bert_out", bertOut);    const dEn = this.bert_encoder.forward(bertOut).transpose(-1, -2);
+    await dumpStats("d_en", dEn);
     bertOut.dispose();
 
     const d = this.predictor.text_encoder.forward(dEn, sProsody);
+    await dumpStats("d (DurEnc out)", d);
     dEn.dispose();
     const dLstm = this.predictor.lstm.forward(d);
+    await dumpStats("x (LSTM out)", dLstm);
     const durationLogits = this.predictor.duration_proj.forward(dLstm);
+    await dumpStats("duration_logits", durationLogits);
     dLstm.dispose();
 
     const durationSum = durationLogits.sigmoid().sum(-1);
@@ -85,9 +112,12 @@ export class Kokoro extends Module {
     durationLogits.dispose();
     durationSum.dispose();
     const predDur: number[] = [];
+    const rawDur: number[] = [];
     for (let t = 0; t < T; t++) {
-      const raw = Math.max(1, Math.round(durationArr[t] / speed));
-      predDur.push(Math.min(raw, maxDur));
+      const rawScaled = durationArr[t] / speed;
+      rawDur.push(rawScaled);
+      const rounded = Math.max(1, Math.round(rawScaled));
+      predDur.push(Math.min(rounded, maxDur));
     }
 
     const L = predDur.reduce((a, b) => a + b, 0);
@@ -118,7 +148,7 @@ export class Kokoro extends Module {
     N.dispose();
     sDecoder.dispose();
     sProsody.dispose();
-    return { audio, predDur };
+    return { audio, predDur, rawDur };
   }
 }
 

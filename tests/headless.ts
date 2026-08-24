@@ -1,5 +1,6 @@
 import "./suites/wasm-parity";
 import "./suites/webgpu-parity";
+import "./suites/attention-parity";
 import "./suites/matmul-bench";
 import "./suites/layernorm-gelu";
 import "./suites/bmm";

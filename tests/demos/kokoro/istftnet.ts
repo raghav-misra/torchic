@@ -150,11 +150,22 @@ export class SineGen {
     return this.harmonicNum + 1;
   }
 
-  // f0Values: [B, L] flat Float32Array. Returns sines [B, L, dim], uv [B, L].
-  // rand_ini offsets the initial phase per harmonic (except the fundamental)
-  // so the excitation isn't a stack of in-phase sines at utterance start.
+  // f0Values: [B, L] flat Float32Array (already upsampled to audio rate).
+  // Returns sines [B, L, dim], uv [B, L].
+  //
+  // Ports the reference StyleTTS-2 SineGen._f02sine dance:
+  //  1. Compute per-audio-sample phase increments (rad).
+  //  2. Downsample rad by 1/upsample_scale to frame rate via linear interp.
+  //  3. Cumsum at frame rate (huge fp precision win: 300× fewer accumulations
+  //     for a 24 kHz signal with upsample_scale=300).
+  //  4. Multiply phase by upsample_scale to compensate for the coming
+  //     interpolation dilation, then linearly upsample back to audio rate.
+  //  5. sin(phase) — the linear interp gives a smoothly-varying pitch, which
+  //     the naive audio-rate cumsum kills as an audible graininess.
   forward(f0Values: Float32Array, B: number, L: number): { sines: Float32Array; uv: Float32Array } {
     const dim = this.dim;
+    const S = this.upsampleScale;
+    const Lf = Math.max(1, Math.floor(L / S));
     const sines = new Float32Array(B * L * dim);
     const uv = new Float32Array(B * L);
     const twoPi = 2 * Math.PI;
@@ -162,14 +173,34 @@ export class SineGen {
     const randInit = new Float32Array(dim);
     for (let h = 1; h < dim; h++) randInit[h] = Math.random();
 
+    const radAudio = new Float32Array(L);
+    const radFrame = new Float32Array(Lf);
+    const phaseFrame = new Float32Array(Lf);
+    const scaledFrame = new Float32Array(Lf);
+    const phaseAudio = new Float32Array(L);
+
     for (let b = 0; b < B; b++) {
       for (let h = 0; h < dim; h++) {
         const mult = h + 1;
-        let phaseSum = randInit[h];
         for (let l = 0; l < L; l++) {
-          const rad = ((f0Values[b * L + l] * mult) / this.sampleRate) % 1;
-          phaseSum += rad;
-          sines[b * L * dim + l * dim + h] = Math.sin(phaseSum * twoPi) * this.sineAmp;
+          const r = (f0Values[b * L + l] * mult) / this.sampleRate;
+          radAudio[l] = r - Math.floor(r);
+        }
+        radAudio[0] += randInit[h];
+
+        linearInterp1D(radAudio, L, radFrame, Lf);
+
+        let acc = 0;
+        for (let k = 0; k < Lf; k++) {
+          acc += radFrame[k];
+          phaseFrame[k] = acc * twoPi;
+          scaledFrame[k] = phaseFrame[k] * S;
+        }
+
+        linearInterp1D(scaledFrame, Lf, phaseAudio, L);
+
+        for (let l = 0; l < L; l++) {
+          sines[b * L * dim + l * dim + h] = Math.sin(phaseAudio[l]) * this.sineAmp;
         }
       }
       for (let l = 0; l < L; l++) {
@@ -188,6 +219,22 @@ export class SineGen {
       }
     }
     return { sines, uv };
+  }
+}
+
+// PyTorch F.interpolate(mode="linear", align_corners=False), 1-D, per-batch,
+// in-place into `dst`. Source-index formula: (dst_idx + 0.5) * (src/dst) - 0.5,
+// clamped to [0, src-1], then linear interp between the two flanking samples.
+function linearInterp1D(src: Float32Array, srcLen: number, dst: Float32Array, dstLen: number): void {
+  const ratio = srcLen / dstLen;
+  for (let i = 0; i < dstLen; i++) {
+    let x = (i + 0.5) * ratio - 0.5;
+    if (x < 0) x = 0;
+    else if (x > srcLen - 1) x = srcLen - 1;
+    const lo = x | 0;
+    const hi = lo + 1 < srcLen ? lo + 1 : lo;
+    const frac = x - lo;
+    dst[i] = src[lo] * (1 - frac) + src[hi] * frac;
   }
 }
 

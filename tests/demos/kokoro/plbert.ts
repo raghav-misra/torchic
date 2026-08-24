@@ -22,6 +22,10 @@ export interface PLBERTOptions {
   typeVocabSize?: number;
 }
 
+// HF AlbertConfig defaults `layer_norm_eps=1e-12`, tighter than nn.LayerNorm's
+// 1e-5. Every LN in PLBERT uses this.
+const PLBERT_LN_EPS = 1e-12;
+
 export class PLBERTEmbeddings extends Module {
   word_embeddings: Embedding;
   position_embeddings: Embedding;
@@ -35,7 +39,7 @@ export class PLBERTEmbeddings extends Module {
     this.word_embeddings = this.child("word_embeddings", new Embedding(vocabSize, embeddingSize));
     this.position_embeddings = this.child("position_embeddings", new Embedding(maxPos, embeddingSize));
     this.token_type_embeddings = this.child("token_type_embeddings", new Embedding(typeVocab, embeddingSize));
-    this.LayerNorm = this.child("LayerNorm", new LayerNorm(embeddingSize));
+    this.LayerNorm = this.child("LayerNorm", new LayerNorm(embeddingSize, PLBERT_LN_EPS));
   }
 
   // input_ids: [B, T] int -> [B, T, embedding_size]
@@ -73,7 +77,7 @@ export class AlbertLayer extends Module {
     this.attention = this.child("attention", new AlbertAttention(hiddenSize, numHeads));
     this.ffn = this.child("ffn", new Linear(hiddenSize, intermediate));
     this.ffn_output = this.child("ffn_output", new Linear(intermediate, hiddenSize));
-    this.full_layer_layer_norm = this.child("full_layer_layer_norm", new LayerNorm(hiddenSize));
+    this.full_layer_layer_norm = this.child("full_layer_layer_norm", new LayerNorm(hiddenSize, PLBERT_LN_EPS));
   }
 
   forward(x: Tensor, attentionMask?: Tensor): Tensor {
@@ -117,7 +121,7 @@ export class AlbertAttention extends Module {
     this.key = this.child("key", new Linear(hiddenSize, hiddenSize));
     this.value = this.child("value", new Linear(hiddenSize, hiddenSize));
     this.dense = this.child("dense", new Linear(hiddenSize, hiddenSize));
-    this.LayerNorm = this.child("LayerNorm", new LayerNorm(hiddenSize));
+    this.LayerNorm = this.child("LayerNorm", new LayerNorm(hiddenSize, PLBERT_LN_EPS));
   }
 
   forward(x: Tensor, _attentionMask?: Tensor): Tensor {
@@ -208,12 +212,13 @@ export class AlbertTransformer extends Module {
     ]);
   }
 
-  forward(x: Tensor, mask?: Tensor): Tensor {
+  async forward(x: Tensor, mask?: Tensor, onLayer?: (i: number, h: Tensor) => Promise<void>): Promise<Tensor> {
     let h = this.embedding_hidden_mapping_in.forward(x);
     for (let i = 0; i < this.numLayers; i++) {
       const next = this.albert_layer_groups[0].forward(h, mask);
       h.dispose();
       h = next;
+      if (onLayer) await onLayer(i, h);
     }
     return h;
   }
@@ -242,9 +247,14 @@ export class PLBERT extends Module {
   }
 
   // input_ids: [B, T] -> last_hidden_state: [B, T, hidden_size]
-  forward(inputIds: Tensor, attentionMask?: Tensor): Tensor {
+  async forward(
+    inputIds: Tensor,
+    attentionMask?: Tensor,
+    onLayer?: (i: number, h: Tensor) => Promise<void>,
+  ): Promise<Tensor> {
     const embedded = this.embeddings.forward(inputIds);
-    const out = this.encoder.forward(embedded, attentionMask);
+    if (onLayer) await onLayer(-1, embedded);
+    const out = await this.encoder.forward(embedded, attentionMask, onLayer);
     embedded.dispose();
     return out;
   }

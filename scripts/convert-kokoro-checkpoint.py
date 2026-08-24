@@ -1,4 +1,4 @@
-r"""
+"""
 Convert Kokoro-82M .pth checkpoint (torch pickle) to .safetensors.
 
 Kokoro's checkpoint is a dict of {module_name: sub_state_dict} — one entry per
@@ -18,7 +18,7 @@ Setup (uv, recommended):
     uv run scripts/convert-kokoro-checkpoint.py ...
 
 Or plain pip / venv:
-    python -m venv .venv && . .venv/bin/activate     # or .venv\Scripts\activate on Windows
+    python -m venv .venv && . .venv/bin/activate
     pip install torch safetensors
 """
 import torch
