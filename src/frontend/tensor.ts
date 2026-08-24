@@ -138,7 +138,11 @@ export class Tensor {
     getDispatcher().allocateView(viewId, this.id, relativeOffsetBytes);
 
     const newOffset = this.offset + relativeOffsetBytes;
-    return new Tensor(viewId, newShape, this.requiresGrad, newOffset, this.strides);
+    const out = new Tensor(viewId, newShape, this.requiresGrad, newOffset, this.strides);
+    // Views share the parent's buffer. Hold a strong ref so GC can't reclaim
+    // the parent (via FinalizationRegistry) while the view is still live.
+    out.prev = [this];
+    return out;
   }
 
   /**
@@ -207,8 +211,10 @@ export class Tensor {
     const out = new Tensor(outId, this.shape, this.requiresGrad);
     if (this.requiresGrad && GradMode.enabled) {
       out.op = "MATERIALIZE";
-      out.prev = [this];
     }
+    // Hold the source alive until the queued MATERIALIZE op has actually run.
+    // Also protects downstream reshape views that end up viewing `out`.
+    out.prev = [this];
     return out;
   }
 
@@ -773,6 +779,9 @@ export class Tensor {
       out.op = "TRANSPOSE";
       out.prev = [this];
       out.params = { axis: d0, axisSize: d1 };
+    } else {
+      // Share buffer with `this`; keep it alive against GC.
+      out.prev = [this];
     }
 
     return out;
@@ -810,6 +819,10 @@ export class Tensor {
     const out = new Tensor(viewId, resolved, shouldGrad, src.offset);
     if (shouldGrad) {
       out.op = "RESHAPE";
+      out.prev = [src];
+    } else {
+      // View into `src`'s buffer. When src is a materialize result from a
+      // non-contig reshape, nothing else holds it; keep it alive against GC.
       out.prev = [src];
     }
 
