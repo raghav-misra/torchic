@@ -483,6 +483,36 @@ export class Tensor {
     return new Tensor(outId, this.shape.slice(), false);
   }
 
+  // Fused StyleTTS AdaIN affine: y = x * (1 + gamma) + beta, gamma/beta
+  // broadcast per channel. `axis` names the channel axis of x (1 for [B,C,L],
+  // -1 or 2 for [B,T,C]). Requires gamma/beta numel == C (i.e. per-channel,
+  // broadcast across all other dims).
+  styleAffine(gamma: Tensor, beta: Tensor, axis: number): Tensor {
+    const rank = this.shape.length;
+    const ax = axis < 0 ? rank + axis : axis;
+    if (ax < 0 || ax >= rank) throw new Error(`styleAffine: axis ${axis} out of range for rank ${rank}`);
+    const C = this.shape[ax];
+    const inner = this.shape.slice(ax + 1).reduce((a, b) => a * b, 1);
+    const gammaNumel = gamma.shape.reduce((a, b) => a * b, 1);
+    const betaNumel = beta.shape.reduce((a, b) => a * b, 1);
+    if (gammaNumel !== C || betaNumel !== C) {
+      throw new Error(`styleAffine: gamma/beta numel must equal C=${C}, got ${gammaNumel}, ${betaNumel}`);
+    }
+    const x = this.materialize();
+    const g = gamma.materialize();
+    const b = beta.materialize();
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, this.numElements() * 4);
+    getDispatcher().runOp("STYLE_AFFINE", [x.id, g.id, b.id], outId, {
+      axisSize: C,
+      innerSize: inner,
+    });
+    if (x !== this) x.dispose();
+    if (g !== gamma) g.dispose();
+    if (b !== beta) b.dispose();
+    return new Tensor(outId, this.shape.slice(), false);
+  }
+
   gelu(): Tensor {
     return this.runUnaryOp("GELU");
   }
