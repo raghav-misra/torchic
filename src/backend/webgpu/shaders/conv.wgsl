@@ -65,13 +65,22 @@ fn conv1d(
 
     let in_b_off = b * u.Cin * u.Lin;
 
-    for (var ci_off: u32 = 0u; ci_off < cin_per_g; ci_off = ci_off + 1u) {
-      let ci = ci_start + ci_off;
-      let in_c_off = in_b_off + ci * u.Lin;
-      let w_ci_off = ci_off * u.K;
-      for (var k: u32 = 0u; k < u.K; k = k + 1u) {
-        let li = lo_i * u.stride + i32(k) * u.dil - u.pad;
-        if (li >= 0 && li < i32(u.Lin)) {
+    // Precompute k range where li stays in bounds; hoists the boundary check
+    // out of the tight inner loop.
+    let li_at_k0 = lo_i * u.stride - u.pad;
+    let lin_i = i32(u.Lin);
+    let k_min_i = max(0, (u.dil - 1 - li_at_k0) / u.dil);
+    let k_max_i = min(i32(u.K), (lin_i - li_at_k0 + u.dil - 1) / u.dil);
+
+    if (k_min_i < k_max_i) {
+      let k_min = u32(k_min_i);
+      let k_max = u32(k_max_i);
+      for (var ci_off: u32 = 0u; ci_off < cin_per_g; ci_off = ci_off + 1u) {
+        let ci = ci_start + ci_off;
+        let in_c_off = in_b_off + ci * u.Lin;
+        let w_ci_off = ci_off * u.K;
+        for (var k: u32 = k_min; k < k_max; k = k + 1u) {
+          let li = lo_i * u.stride + i32(k) * u.dil - u.pad;
           sum = sum + heap[u.input_off + in_c_off + u32(li)] * w_tile[w_ci_off + k];
         }
       }
