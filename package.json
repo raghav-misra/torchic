@@ -27,6 +27,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "bench": "node scripts/bench.mjs",
+    "bench:kokoro": "node scripts/kokoro-bench.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

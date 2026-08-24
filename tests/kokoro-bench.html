@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>torchic: kokoro headless bench</title>
+    <style>
+      body {
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        margin: 0;
+        padding: 12px;
+        background: #111;
+        color: #ddd;
+      }
+      pre { white-space: pre-wrap; word-break: break-word; }
+      #status { color: #6cf; }
+    </style>
+  </head>
+  <body>
+    <div id="status">boot…</div>
+    <pre id="log"></pre>
+    <input type="file" id="model-input" accept=".safetensors" />
+    <input type="file" id="voice-input" accept=".safetensors" />
+    <script type="module" src="./kokoro-bench.ts"></script>
+  </body>
+</html>
