@@ -30,10 +30,26 @@ class KokoroChannelLN extends Module {
     const t = x.transpose(1, 2);
     const mean = t.mean(-1, true);
     const centered = t.sub(mean);
-    const variance = centered.mul(centered).mean(-1, true);
-    const invStd = variance.add(this.eps).rsqrt();
-    const normed = centered.mul(invStd).mul(this.gamma).add(this.beta);
-    return normed.transpose(1, 2);
+    mean.dispose();
+    t.dispose();
+    const sq = centered.mul(centered);
+    const variance = sq.mean(-1, true);
+    sq.dispose();
+    const varPlusEps = variance.add(this.eps);
+    variance.dispose();
+    const invStd = varPlusEps.rsqrt();
+    varPlusEps.dispose();
+    const scaled = centered.mul(invStd);
+    centered.dispose();
+    invStd.dispose();
+    const gained = scaled.mul(this.gamma);
+    scaled.dispose();
+    const normed = gained.add(this.beta);
+    gained.dispose();
+    const out = normed.transpose(1, 2);
+    // normed is the returned view's source; hand ownership over via out.prev.
+    // Consumer disposes `out`, source stays alive via view ref.
+    return out;
   }
 }
 
@@ -51,7 +67,12 @@ class TextEncoderCNNBlock extends Module {
   }
 
   forward(x: Tensor): Tensor {
-    return this.norm.forward(this.conv.forward(x)).leaky_relu(0.2);
+    const c = this.conv.forward(x);
+    const n = this.norm.forward(c);
+    c.dispose();
+    const out = n.leaky_relu(0.2);
+    n.dispose();
+    return out;
   }
 }
 
@@ -76,9 +97,19 @@ export class TextEncoder extends Module {
 
   // x: [B, T] phoneme indices -> [B, channels, T]
   forward(x: Tensor): Tensor {
-    let h = this.embedding.forward(x).transpose(1, 2);
-    for (const b of this.cnn) h = b.forward(h);
-    const lstmOut = this.lstm.forward(h.transpose(1, 2));
-    return lstmOut.transpose(1, 2);
+    const emb = this.embedding.forward(x);
+    let h = emb.transpose(1, 2);
+    for (const b of this.cnn) {
+      const next = b.forward(h);
+      h.dispose();
+      h = next;
+    }
+    emb.dispose();
+    const hT = h.transpose(1, 2);
+    h.dispose();
+    const lstmOut = this.lstm.forward(hT);
+    hT.dispose();
+    const out = lstmOut.transpose(1, 2);
+    return out;
   }
 }

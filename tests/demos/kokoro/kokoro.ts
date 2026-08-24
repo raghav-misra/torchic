@@ -83,7 +83,7 @@ export class Kokoro extends Module {
     }
     const speed = opts.speed ?? 1;
     const maxDur = opts.maxDurPerPhoneme ?? Infinity;
-    const stage = opts.onStage ?? (() => {});
+    const stage = opts.onStage ?? ((_: string) => undefined);
     const dumpStats = async (name: string, t: Tensor): Promise<void> => {
       if (!opts.onStats) return;
       opts.onStats(name, await tensorStats(t));
@@ -103,7 +103,8 @@ export class Kokoro extends Module {
     });
     await dumpStats("bert_out", bertOut);
     stage("bert_encoder");
-    const dEn = this.bert_encoder.forward(bertOut).transpose(-1, -2);
+    const bertEnc = this.bert_encoder.forward(bertOut);
+    const dEn = bertEnc.transpose(-1, -2);
     await dumpStats("d_en", dEn);
     bertOut.dispose();
 
@@ -111,6 +112,7 @@ export class Kokoro extends Module {
     const d = this.predictor.text_encoder.forward(dEn, sProsody);
     await dumpStats("d (DurEnc out)", d);
     dEn.dispose();
+    bertEnc.dispose();
     stage("dur_lstm");
     const dLstm = this.predictor.lstm.forward(d);
     await dumpStats("x (LSTM out)", dLstm);
@@ -148,6 +150,7 @@ export class Kokoro extends Module {
     stage("aln_bmm_d");
     const dT = d.transpose(-1, -2);
     const en = dT.bmm(predAlnTrg);
+    dT.dispose();
     d.dispose();
     stage("f0n_forward");
     const { F0, N } = this.predictor.F0Nforward(en, sProsody);

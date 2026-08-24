@@ -408,7 +408,7 @@ export class Generator extends Module {
     f0: Tensor,
     onStage?: (name: string) => void,
   ): Promise<Float32Array> {
-    const stage = onStage ?? (() => {});
+    const stage = onStage ?? ((_: string) => undefined);
     const [B] = f0.shape;
     if (B !== 1) throw new Error(`Generator: B=1 only for now, got ${B}`);
 
@@ -544,7 +544,7 @@ export class Decoder extends Module {
     s: Tensor,
     onStage?: (name: string) => void,
   ): Promise<Float32Array> {
-    const stage = onStage ?? (() => {});
+    const stage = onStage ?? ((_: string) => undefined);
     stage("dec.f0_n_conv");
     const F0In = F0_curve.reshape([F0_curve.shape[0], 1, F0_curve.shape[1]]);
     const NIn = N.reshape([N.shape[0], 1, N.shape[1]]);
