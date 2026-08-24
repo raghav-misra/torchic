@@ -414,8 +414,10 @@ export class Generator extends Module {
     for (let i = 0; i < L_source; i++) upsampled[i] = f0Flat[Math.floor(i / this.upsampleScale)];
     const upT = Tensor.fromData(Array.from(upsampled), [B, L_source, 1]);
     const { sineMerge } = await this.m_source.forward(upT);
+    upT.dispose();
     // sineMerge: [B, L_source, 1] -> [B, L_source]
     const harSource = await sineMerge.toArray();
+    sineMerge.dispose();
     const { magnitude, phase, frames } = stftHann(harSource, this.postNFFT, this.hopLength);
     const nBins = (this.postNFFT >> 1) + 1;
     // Interleave [mag; phase] along channel axis -> [1, 2*nBins, frames]
@@ -477,7 +479,10 @@ export class Generator extends Module {
 
     const specFlat = await specPart.toArray();
     const phaseFlat = await phasePart.toArray();
+    specPart.dispose();
+    phasePart.dispose();
     const T = h.shape[2];
+    h.dispose();
     const real = new Float32Array(nBins * T);
     const imag = new Float32Array(nBins * T);
     for (let i = 0; i < real.length; i++) {
