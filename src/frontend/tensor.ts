@@ -628,6 +628,25 @@ export class Tensor {
     return new Tensor(outId, this.shape.slice(), false);
   }
 
+  // Write `source`'s contiguous data into this tensor's buffer starting at
+  // `atOffset` elements. Positions outside [atOffset, atOffset+source.numel)
+  // are left untouched. Mutating; returns `this` for chaining. Foundation for
+  // KV cache append. Requires `this` and `source` to both be contiguous.
+  copyFrom(source: Tensor, options: { atOffset: number }): this {
+    const atOffset = options.atOffset;
+    if (atOffset < 0) throw new Error(`copyFrom: atOffset must be non-negative, got ${atOffset}`);
+    const count = source.numElements();
+    if (atOffset + count > this.numElements()) {
+      throw new Error(
+        `copyFrom: range [${atOffset}, ${atOffset + count}) exceeds destination size ${this.numElements()}`,
+      );
+    }
+    const src = source.materialize();
+    getDispatcher().runOp("COPY_RANGE", [src.id], this.id, { dstOffset: atOffset, count });
+    if (src !== source) src.dispose();
+    return this;
+  }
+
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
       throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);

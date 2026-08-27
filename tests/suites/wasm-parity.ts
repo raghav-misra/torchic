@@ -35,6 +35,7 @@ interface Results {
   rms_norm: Float32Array;
   rope: Float32Array;
   causal_softmax: Float32Array;
+  copy_range: Float32Array;
   conv1d_basic: Float32Array;
   conv1d_stride_pad: Float32Array;
   conv_transpose1d_basic: Float32Array;
@@ -155,6 +156,13 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
       const scores = Tensor.fromData(scoresData, [T, T]);
       return await scores.causal_softmax().toArray();
     })(),
+    copy_range: await (async () => {
+      const dst = Tensor.zeros([32]);
+      dst.write(new Float32Array(32).fill(-1));
+      const src = Tensor.fromData(Array.from({ length: 10 }, (_, i) => i + 1), [10]);
+      dst.copyFrom(src, { atOffset: 8 });
+      return await dst.toArray();
+    })(),
     conv1d_basic: await convIn.conv1d(convW, convB, {}).toArray(),
     conv1d_stride_pad: await convIn
       .conv1d(convW, convB, { stride: 2, padding: 2 })
@@ -213,6 +221,7 @@ const TOLERANCES: Record<keyof Results, number> = {
   rms_norm: 1e-5,
   rope: 1e-5,
   causal_softmax: 1e-5,
+  copy_range: 0,
   conv1d_basic: 1e-5,
   conv1d_stride_pad: 1e-5,
   conv_transpose1d_basic: 1e-5,

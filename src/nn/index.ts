@@ -18,6 +18,7 @@ export {
   lstmForward,
   sinusoidalPositionalEncoding,
   RMSNorm,
+  SwiGLU,
 } from "./layers";
 export { scaledRandn, kaimingStd } from "./init";
 export * as functional from "./functional";

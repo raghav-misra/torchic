@@ -775,6 +775,18 @@ function executeKernel(
     return;
   }
 
+  if (op === "COPY_RANGE") {
+    const count = required(params.count, "count");
+    const dstOffset = required(params.dstOffset, "dstOffset");
+    const chunk = Math.ceil(count / totalWorkers);
+    const start = workerIndex * chunk;
+    const end = Math.min(start + chunk, count);
+    if (start >= count) return;
+
+    exports.copy_range(inputs[0].offset, output.offset, dstOffset, start, end);
+    return;
+  }
+
   if (op === "SUM_PARTIAL") {
     const total = inputs[0].size / 4;
     const chunk = Math.ceil(total / totalWorkers);

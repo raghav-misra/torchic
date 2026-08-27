@@ -178,6 +178,7 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "RMS_NORM") return this.dispatchRmsNorm(pipeline, im, outMeta, params);
     if (op === "ROPE") return this.dispatchRope(pipeline, im, outMeta, params);
     if (op === "CAUSAL_SOFTMAX") return this.dispatchCausalSoftmax(pipeline, im, outMeta, params);
+    if (op === "COPY_RANGE") return this.dispatchCopyRange(pipeline, im, outMeta, params);
     if (op === "FILL") return this.dispatchFill(pipeline, outMeta, params);
     if (op === "RANDN") return this.dispatchRandn(pipeline, outMeta);
     if (op === "EMBEDDING") return this.dispatchEmbedding(pipeline, im, outMeta, params);
@@ -556,6 +557,23 @@ export class WebGPUDispatcher implements Dispatcher {
       m,
     ]);
     this.encodeAndSubmit(pipeline, u, Math.ceil(m / ROW_TILE), 1);
+  }
+
+  private dispatchCopyRange(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const count = required(params.count, "count");
+    const dstOffset = required(params.dstOffset, "dstOffset");
+    const u = new Uint32Array([
+      inputs[0].offset >>> 2,
+      out.offset >>> 2,
+      dstOffset,
+      count,
+    ]);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(count / ELEMENTWISE_TILE), 1);
   }
 
   private dispatchMaterialize(inputs: TensorMetadata[], out: TensorMetadata, params: OpParams) {

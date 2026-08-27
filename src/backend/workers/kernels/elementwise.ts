@@ -510,6 +510,16 @@ export function causal_softmax2d(
   }
 }
 
+export function copy_range(
+  src: Float32Array,
+  dst: Float32Array,
+  dstOffset: number,
+  start: number,
+  end: number,
+) {
+  for (let i = start; i < end; i++) dst[dstOffset + i] = src[i];
+}
+
 // Tanh approximation used by BERT / GPT-2 / Kokoro.
 // gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
 const GELU_C = 0.7978845608028654; // sqrt(2/π)

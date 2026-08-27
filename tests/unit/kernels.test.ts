@@ -309,6 +309,32 @@ describe("elementwise kernels", () => {
       expect(out[i]).toBeCloseTo(ref[i], 5);
     }
   });
+
+  it("copy_range writes only the target slice and leaves the rest intact", () => {
+    const src = randFloat32(8, 200);
+    const dst = new Float32Array(20);
+    for (let i = 0; i < dst.length; i++) dst[i] = -7;
+
+    elementwise.copy_range(src, dst, 5, 0, 8);
+
+    for (let i = 0; i < 5; i++) expect(dst[i]).toBe(-7);
+    for (let i = 0; i < 8; i++) expect(dst[5 + i]).toBe(src[i]);
+    for (let i = 13; i < 20; i++) expect(dst[i]).toBe(-7);
+  });
+
+  it("copy_range partitioned across workers reconstructs the full copy", () => {
+    const src = randFloat32(16, 210);
+    const dst = new Float32Array(24);
+    for (let i = 0; i < dst.length; i++) dst[i] = -7;
+
+    // Simulate two workers splitting the range.
+    elementwise.copy_range(src, dst, 4, 0, 8);
+    elementwise.copy_range(src, dst, 4, 8, 16);
+
+    for (let i = 0; i < 4; i++) expect(dst[i]).toBe(-7);
+    for (let i = 0; i < 16; i++) expect(dst[4 + i]).toBe(src[i]);
+    for (let i = 20; i < 24; i++) expect(dst[i]).toBe(-7);
+  });
 });
 
 describe("reductions", () => {

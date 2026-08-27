@@ -189,6 +189,14 @@ export interface KernelExports {
     endRow: number,
   ): void;
 
+  copy_range(
+    srcPtr: number,
+    dstPtr: number,
+    dstOffset: number,
+    start: number,
+    end: number,
+  ): void;
+
   rms_norm2d(
     inputPtr: number,
     weightPtr: number,

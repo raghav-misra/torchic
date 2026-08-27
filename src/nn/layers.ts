@@ -173,6 +173,36 @@ export class RMSNorm extends Module {
   }
 }
 
+
+// SwiGLU FFN, as used by Llama / Mistral / Qwen:
+//   y = down(silu(gate(x)) * up(x))
+// Three Linear projections; no new kernel. Bias defaults off (matches HF Llama).
+export class SwiGLU extends Module {
+  gate: Linear;
+  up: Linear;
+  down: Linear;
+
+  constructor(dim: number, ffnDim: number, bias = false) {
+    super();
+    this.gate = this.child("gate", new Linear(dim, ffnDim, bias));
+    this.up = this.child("up", new Linear(dim, ffnDim, bias));
+    this.down = this.child("down", new Linear(ffnDim, dim, bias));
+  }
+
+  forward(x: Tensor): Tensor {
+    const g = this.gate.forward(x);
+    const gated = g.silu();
+    g.dispose();
+    const u = this.up.forward(x);
+    const activated = gated.mul(u);
+    gated.dispose();
+    u.dispose();
+    const out = this.down.forward(activated);
+    activated.dispose();
+    return out;
+  }
+}
+
 // GroupNorm over a [B, C, ...] tensor. Splits C into `numGroups`, computes
 // mean/var over (channels-per-group * spatial dims), applies per-channel
 // affine. Matches PyTorch semantics; composed from primitives.

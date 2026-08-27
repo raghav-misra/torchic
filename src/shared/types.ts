@@ -43,6 +43,9 @@ export interface OpParams {
   dHalf?: number;
   // Causal softmax params.
   pastLen?: number;
+  // Slice-write params.
+  dstOffset?: number;
+  count?: number;
   // Concat params.
   outerSize?: number;
   inAxisSize?: number;

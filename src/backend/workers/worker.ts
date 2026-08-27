@@ -612,6 +612,19 @@ function executeKernel(
     return;
   }
 
+  if (op === "COPY_RANGE") {
+    const count = required(params.count, "count");
+    const dstOffset = required(params.dstOffset, "dstOffset");
+    const chunk = Math.ceil(count / totalWorkers);
+    const start = workerIndex * chunk;
+    const end = Math.min(start + chunk, count);
+
+    if (start < count) {
+      elementwise.copy_range(inputViews[0], outputView, dstOffset, start, end);
+    }
+    return;
+  }
+
   if (op === "TRANSPOSE") {
     const m = required(params.m, "m");
     const n = required(params.n, "n");

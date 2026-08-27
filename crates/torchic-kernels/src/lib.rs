@@ -9,6 +9,7 @@ mod rms_norm;
 mod rope;
 mod softmax;
 mod causal_softmax;
+mod copy_range;
 mod transpose;
 mod conv;
 mod concat;
