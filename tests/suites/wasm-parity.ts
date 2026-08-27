@@ -1,4 +1,5 @@
 import { Tensor, init, shutdown } from "../../src/index";
+import { functional, KVCache } from "../../src/nn";
 import { defineTest } from "../framework/define";
 import type { RunContext } from "../framework/types";
 
@@ -37,6 +38,8 @@ interface Results {
   causal_softmax: Float32Array;
   copy_range: Float32Array;
   repeat_interleave: Float32Array;
+  causal_attention: Float32Array;
+  kv_cache_roundtrip: Float32Array;
   conv1d_basic: Float32Array;
   conv1d_stride_pad: Float32Array;
   conv_transpose1d_basic: Float32Array;
@@ -171,6 +174,48 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
       const kv = Tensor.fromData(data, [B, Hkv, T, D]);
       return await kv.repeatInterleave(1, 3).toArray();
     })(),
+    causal_attention: await (async () => {
+      const N = 2, Tq = 5, D = 8;
+      const q = Tensor.fromData(
+        Array.from({ length: N * Tq * D }, (_, i) => Math.sin(i * 0.041)),
+        [N, Tq, D],
+      );
+      const k = Tensor.fromData(
+        Array.from({ length: N * Tq * D }, (_, i) => Math.cos(i * 0.053)),
+        [N, Tq, D],
+      );
+      const v = Tensor.fromData(
+        Array.from({ length: N * Tq * D }, (_, i) => Math.sin(i * 0.067) * 0.3),
+        [N, Tq, D],
+      );
+      return await functional.causalAttention(q, k, v, 0).toArray();
+    })(),
+    kv_cache_roundtrip: await (async () => {
+      const cache = new KVCache(2, 16, 4, 8);
+      const perTok = 4 * 8;
+      for (let step = 0; step < 3; step++) {
+        for (let layer = 0; layer < 2; layer++) {
+          const kNew = Tensor.fromData(
+            Array.from({ length: perTok }, (_, i) => step * 100 + layer * 10 + i * 0.1),
+            [1, 4, 8],
+          );
+          const vNew = Tensor.fromData(
+            Array.from({ length: perTok }, (_, i) => step * 100 + layer * 10 + i * 0.1 + 0.5),
+            [1, 4, 8],
+          );
+          cache.write(layer, kNew, vNew, 1);
+        }
+        cache.commit(1);
+      }
+      const kFinal = await cache.write(
+        0,
+        Tensor.zeros([1, 4, 8]),
+        Tensor.zeros([1, 4, 8]),
+        1,
+      ).k.toArray();
+      cache.dispose();
+      return kFinal;
+    })(),
     conv1d_basic: await convIn.conv1d(convW, convB, {}).toArray(),
     conv1d_stride_pad: await convIn
       .conv1d(convW, convB, { stride: 2, padding: 2 })
@@ -231,6 +276,8 @@ const TOLERANCES: Record<keyof Results, number> = {
   causal_softmax: 1e-5,
   copy_range: 0,
   repeat_interleave: 0,
+  causal_attention: 1e-5,
+  kv_cache_roundtrip: 0,
   conv1d_basic: 1e-5,
   conv1d_stride_pad: 1e-5,
   conv_transpose1d_basic: 1e-5,

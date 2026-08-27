@@ -185,6 +185,7 @@ export interface KernelExports {
     m: number,
     n: number,
     pastLen: number,
+    tQuery: number,
     startRow: number,
     endRow: number,
   ): void;

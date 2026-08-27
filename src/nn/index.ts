@@ -1,5 +1,6 @@
 export { Module } from "./module";
 export type { StateDict } from "./module";
+export { KVCache } from "./kv_cache";
 export {
   Linear,
   LinearNorm,

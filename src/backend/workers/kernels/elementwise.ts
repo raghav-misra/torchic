@@ -479,12 +479,14 @@ export function causal_softmax2d(
   m: number,
   n: number,
   pastLen: number,
+  tQuery: number,
   startRow: number,
   endRow: number,
 ) {
   for (let r = startRow; r < endRow; r++) {
     const base = r * n;
-    let allowed = pastLen + r;
+    const qPos = r % tQuery;
+    let allowed = pastLen + qPos;
     if (allowed >= n) allowed = n - 1;
     const endCol = allowed + 1;
 

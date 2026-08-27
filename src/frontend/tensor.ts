@@ -610,19 +610,23 @@ export class Tensor {
     return new Tensor(outId, this.shape.slice(), false);
   }
 
-  // Causal-masked softmax over the last dim. Row r sees only cols [0, pastLen+r]
-  // (clamped to n-1); disallowed cols are zeroed. pastLen=0 is standard prefill
-  // where scores are square [T, T]. Inference-only.
-  causal_softmax(pastLen = 0): Tensor {
+  // Causal-masked softmax over the last dim. Row r represents query at position
+  // `r % tQuery`; it sees only cols [0, pastLen + r%tQuery] (clamped to n-1);
+  // disallowed cols are zeroed. tQuery defaults to m (single-batch), so flat
+  // [m, n] scores work unchanged. For flattened [N*T_q, T_k] batched scores,
+  // pass tQuery=T_q to get per-batch position wrapping. Inference-only.
+  causal_softmax(pastLen = 0, tQuery?: number): Tensor {
     const rank = this.shape.length;
     if (rank < 2) throw new Error(`causal_softmax: needs at least 2D input, got shape [${this.shape}]`);
     const n = this.shape[rank - 1];
     const m = this.numElements() / n;
+    const tq = tQuery ?? m;
+    if (tq <= 0) throw new Error(`causal_softmax: tQuery must be positive, got ${tq}`);
 
     const x = this.materialize();
     const outId = getDispatcher().nextTensorId();
     getDispatcher().allocate(outId, x.numElements() * 4);
-    getDispatcher().runOp("CAUSAL_SOFTMAX", [x.id], outId, { m, n, pastLen });
+    getDispatcher().runOp("CAUSAL_SOFTMAX", [x.id], outId, { m, n, pastLen, tQuery: tq });
 
     if (x !== this) x.dispose();
     return new Tensor(outId, this.shape.slice(), false);
@@ -1079,9 +1083,15 @@ export class Tensor {
     return out;
   }
 
-  toArray(clone = true): Promise<Float32Array> {
+  async toArray(clone = true): Promise<Float32Array> {
     const tensor = this.materialize();
-    return clone ? getDispatcher().read(tensor.id) : getDispatcher().readView(tensor.id);
+    const raw = await (clone
+      ? getDispatcher().read(tensor.id)
+      : getDispatcher().readView(tensor.id));
+    // Views inherit the parent's registered byte size, so a slice's raw read
+    // returns extra trailing garbage. Trim to the shape's actual element count.
+    const expected = this.shape.reduce((a, b) => a * b, 1);
+    return raw.length === expected ? raw : raw.slice(0, expected);
   }
 
   async item(): Promise<number> {

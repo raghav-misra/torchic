@@ -758,6 +758,7 @@ function executeKernel(
     const m = required(params.m, "m");
     const n = required(params.n, "n");
     const pastLen = params.pastLen ?? 0;
+    const tQuery = params.tQuery ?? m;
     const rowsPerWorker = Math.ceil(m / totalWorkers);
     const startRow = workerIndex * rowsPerWorker;
     const endRow = Math.min(startRow + rowsPerWorker, m);
@@ -769,6 +770,7 @@ function executeKernel(
       m,
       n,
       pastLen,
+      tQuery,
       startRow,
       endRow,
     );

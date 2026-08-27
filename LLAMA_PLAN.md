@@ -12,8 +12,8 @@ Library (`src/`) stays model-agnostic: tensor primitives, backends, autograd, `n
 - [x] Causal-masked softmax
 - [x] Slice-write primitive (`Tensor.copyFrom(source, { atOffset })`) — foundation for KV cache
 - [x] Repeat-interleave op — for GQA broadcasting
-- [ ] `functional.causalAttention(q, k, v, pastLen)` — composed helper
-- [ ] `nn.KVCache` — thin per-layer bookkeeping class
+- [x] `functional.causalAttention(q, k, v, pastLen)` — composed helper
+- [x] `nn.KVCache` — thin per-layer bookkeeping class
 - [ ] BPE tokenizer + chat template
 - [ ] Autoregressive sampling loop
 - [ ] INT4 loader + dequant path
@@ -50,16 +50,16 @@ Everything here goes in `src/` — generic across any decoder-only LLM (Llama, M
 - [x] Unit test + parity test.
 
 ### 2c. Causal attention composition helper
-- [ ] `functional.causalAttention(q, k, v, pastLen = 0)` — `q [B, H, T_q, D]`, `k/v [B, H, T_k, D]` where `T_k = pastLen + T_q`. Composes: `bmm(q, k.transpose(-2, -1)) * (1/sqrt(D)) → causal_softmax(pastLen) → bmm(attn, v)`. No new kernel.
-- [ ] Unit test (small deterministic input, compare against manual reference).
+- [x] `functional.causalAttention(q, k, v, pastLen = 0)` — `q [N, Tq, D]`, `k/v [N, Tk, D]` where `Tk = pastLen + Tq`. Composes: `bmm(q, k.transpose(-2, -1)) * (1/sqrt(D)) → causal_softmax(pastLen, tQuery=Tq) → bmm(attn, v)`. No new kernel.
+- [x] `causal_softmax` extended with `tQuery` param for correct multi-batch position-per-row wrapping.
+- [x] Unit test + parity test.
 
 ### 2d. KV cache bookkeeping
-- [ ] `nn.KVCache(numLayers, maxSeqLen, numKvHeads, headDim)` — thin wrapper around `2 * numLayers` pre-allocated tensors of shape `[maxSeqLen, numKvHeads, headDim]` plus an int cursor.
-- [ ] `.write(layerIdx, kNew, vNew)` — uses `copyFrom` at the current cursor; increments cursor exactly once after ALL layers for the current step have been written.
-- [ ] `.read(layerIdx)` — returns `{ k, v }` slice views up to cursor.
-- [ ] `.reset()` — cursor := 0.
-- [ ] `.position` getter.
-- [ ] Unit test simulating multi-step append + read pattern.
+- [x] `nn.KVCache(numLayers, maxSeqLen, numKvHeads, headDim)` — pre-allocates `2 * numLayers` tensors of shape `[maxSeqLen, numKvHeads, headDim]` plus an int cursor.
+- [x] `.write(layerIdx, kNew, vNew, tNew)` — uses `copyFrom` at the current cursor and returns `{ k, v }` slice views up to `cursor + tNew`.
+- [x] `.commit(tNew)` — advances cursor after all layers written for a step.
+- [x] `.reset()`, `.position` getter, `.dispose()`.
+- [x] Parity test for a multi-step write/commit sequence.
 
 ## Phase 3 — Llama demo in `tests/demos/llama/`
 

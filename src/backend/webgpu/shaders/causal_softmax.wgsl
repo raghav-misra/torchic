@@ -9,6 +9,7 @@ struct CausalSoftmaxU {
   m: u32,
   n: u32,
   past_len: u32,
+  t_query: u32,
   start_row: u32,
   end_row: u32,
 }
@@ -23,7 +24,8 @@ fn causal_softmax(@builtin(global_invocation_id) gid: vec3<u32>) {
   let in_base = u.input + row * u.n;
   let out_base = u.output + row * u.n;
 
-  var allowed: u32 = u.past_len + row;
+  let q_pos = row % u.t_query;
+  var allowed: u32 = u.past_len + q_pos;
   if (allowed >= u.n) { allowed = u.n - 1u; }
   let end_col: u32 = allowed + 1u;
 

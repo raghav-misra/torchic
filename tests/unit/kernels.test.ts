@@ -253,7 +253,7 @@ describe("elementwise kernels", () => {
       n = 6;
     const inArr = randFloat32(m * n, 55);
     const out = new Float32Array(m * n);
-    elementwise.causal_softmax2d(inArr, out, m, n, 0, 0, m);
+    elementwise.causal_softmax2d(inArr, out, m, n, 0, m, 0, m);
 
     for (let r = 0; r < m; r++) {
       let sum = 0;
@@ -275,7 +275,7 @@ describe("elementwise kernels", () => {
       pastLen = 4;
     const inArr = randFloat32(m * n, 88);
     const out = new Float32Array(m * n);
-    elementwise.causal_softmax2d(inArr, out, m, n, pastLen, 0, m);
+    elementwise.causal_softmax2d(inArr, out, m, n, pastLen, m, 0, m);
 
     for (let r = 0; r < m; r++) {
       const allowed = pastLen + r;
@@ -302,11 +302,36 @@ describe("elementwise kernels", () => {
     elementwise.softmax2d(masked, ref, m, n, 0, m);
 
     const out = new Float32Array(m * n);
-    elementwise.causal_softmax2d(inArr, out, m, n, 0, 0, m);
+    elementwise.causal_softmax2d(inArr, out, m, n, 0, m, 0, m);
 
     for (let i = 0; i < m * n; i++) {
       // NaN from softmax(all -inf) not possible here since row 0 has one allowed col.
       expect(out[i]).toBeCloseTo(ref[i], 5);
+    }
+  });
+
+  it("causal_softmax2d with tQuery wraps positions per batch", () => {
+    const N = 2,
+      Tq = 3,
+      Tk = 3;
+    const m = N * Tq;
+    const inArr = randFloat32(m * Tk, 271);
+    const out = new Float32Array(m * Tk);
+    elementwise.causal_softmax2d(inArr, out, m, Tk, 0, Tq, 0, m);
+
+    // Both batches should have identical causal masking pattern: row t within a
+    // batch attends to cols [0, t]. So row (n, t) and (n', t) must have the same
+    // zero pattern (cols > t are 0).
+    for (let n = 0; n < N; n++) {
+      for (let t = 0; t < Tq; t++) {
+        const r = n * Tq + t;
+        for (let c = 0; c < Tk; c++) {
+          if (c > t) expect(out[r * Tk + c]).toBe(0);
+        }
+        let sum = 0;
+        for (let c = 0; c <= t; c++) sum += out[r * Tk + c];
+        expect(sum).toBeCloseTo(1, 5);
+      }
     }
   });
 

@@ -43,6 +43,7 @@ export interface OpParams {
   dHalf?: number;
   // Causal softmax params.
   pastLen?: number;
+  tQuery?: number;
   // Slice-write params.
   dstOffset?: number;
   count?: number;

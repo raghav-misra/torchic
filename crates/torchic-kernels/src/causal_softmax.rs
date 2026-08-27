@@ -1,7 +1,10 @@
 // Row-wise causal-masked softmax over an m x n matrix, numerically stable.
-// Row r may only attend to columns [0, past_len + r] (inclusive), clamped to n-1.
-// Columns beyond that get 0. past_len supports prefill continuation on top of
-// an existing KV cache (past_len=0 for from-scratch prefill).
+// Row r represents query at position `r % t_query`; it may only attend to columns
+// [0, past_len + (r % t_query)] (inclusive), clamped to n-1. Columns beyond that
+// get 0. past_len supports prefill continuation on top of an existing KV cache.
+// t_query = m degenerates to "position = row index" (single-batch case);
+// t_query < m enables flattening [N, T_q, T_k] → [N*T_q, T_k] where each batch's
+// queries are consecutive rows with the same position pattern.
 #[no_mangle]
 pub unsafe extern "C" fn causal_softmax2d(
     input: *const f32,
@@ -9,17 +12,20 @@ pub unsafe extern "C" fn causal_softmax2d(
     _m: u32,
     n: u32,
     past_len: u32,
+    t_query: u32,
     start_row: u32,
     end_row: u32,
 ) {
     let n = n as usize;
     let past_len = past_len as usize;
+    let t_query = t_query as usize;
     let start_row = start_row as usize;
     let end_row = end_row as usize;
 
     for r in start_row..end_row {
         let base = r * n;
-        let mut allowed = past_len + r;
+        let q_pos = r % t_query;
+        let mut allowed = past_len + q_pos;
         if allowed >= n {
             allowed = n - 1;
         }

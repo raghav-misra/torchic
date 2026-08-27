@@ -548,12 +548,14 @@ export class WebGPUDispatcher implements Dispatcher {
     const m = required(params.m, "m");
     const n = required(params.n, "n");
     const pastLen = params.pastLen ?? 0;
+    const tQuery = params.tQuery ?? m;
     const u = new Uint32Array([
       inputs[0].offset >>> 2,
       out.offset >>> 2,
       m,
       n,
       pastLen,
+      tQuery,
       0,
       m,
     ]);
