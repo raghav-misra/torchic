@@ -46,6 +46,8 @@ export interface OpParams {
   // Slice-write params.
   dstOffset?: number;
   count?: number;
+  // Repeat-interleave params.
+  repeats?: number;
   // Concat params.
   outerSize?: number;
   inAxisSize?: number;

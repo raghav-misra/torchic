@@ -787,6 +787,28 @@ function executeKernel(
     return;
   }
 
+  if (op === "REPEAT_INTERLEAVE") {
+    const count = required(params.count, "count");
+    const axisSize = required(params.axisSize, "axisSize");
+    const innerSize = required(params.innerSize, "innerSize");
+    const repeats = required(params.repeats, "repeats");
+    const chunk = Math.ceil(count / totalWorkers);
+    const start = workerIndex * chunk;
+    const end = Math.min(start + chunk, count);
+    if (start >= count) return;
+
+    exports.repeat_interleave(
+      inputs[0].offset,
+      output.offset,
+      axisSize,
+      innerSize,
+      repeats,
+      start,
+      end,
+    );
+    return;
+  }
+
   if (op === "SUM_PARTIAL") {
     const total = inputs[0].size / 4;
     const chunk = Math.ceil(total / totalWorkers);

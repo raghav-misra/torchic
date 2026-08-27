@@ -647,6 +647,39 @@ export class Tensor {
     return this;
   }
 
+  // Repeat each slice along `dim` `repeats` times consecutively. Output shape
+  // matches input except shape[dim] becomes shape[dim] * repeats. Used by GQA
+  // to broadcast KV heads to match Q head count. Inference-only.
+  repeatInterleave(dim: number, repeats: number): Tensor {
+    const rank = this.shape.length;
+    const d = dim < 0 ? rank + dim : dim;
+    if (d < 0 || d >= rank) throw new Error(`repeatInterleave: dim ${dim} out of range for rank ${rank}`);
+    if (repeats <= 0 || !Number.isInteger(repeats)) {
+      throw new Error(`repeatInterleave: repeats must be a positive integer, got ${repeats}`);
+    }
+    if (repeats === 1) return this;
+
+    const axisSize = this.shape[d];
+    let innerSize = 1;
+    for (let i = d + 1; i < rank; i++) innerSize *= this.shape[i];
+
+    const outShape = this.shape.slice();
+    outShape[d] = axisSize * repeats;
+    const count = outShape.reduce((a, b) => a * b, 1);
+
+    const src = this.materialize();
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, count * 4);
+    getDispatcher().runOp("REPEAT_INTERLEAVE", [src.id], outId, {
+      count,
+      axisSize,
+      innerSize,
+      repeats,
+    });
+    if (src !== this) src.dispose();
+    return new Tensor(outId, outShape, false);
+  }
+
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
       throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);

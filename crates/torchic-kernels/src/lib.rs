@@ -10,6 +10,7 @@ mod rope;
 mod softmax;
 mod causal_softmax;
 mod copy_range;
+mod repeat_interleave;
 mod transpose;
 mod conv;
 mod concat;

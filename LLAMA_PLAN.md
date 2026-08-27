@@ -11,7 +11,7 @@ Library (`src/`) stays model-agnostic: tensor primitives, backends, autograd, `n
 - [x] RoPE (rotary position embeddings)
 - [x] Causal-masked softmax
 - [x] Slice-write primitive (`Tensor.copyFrom(source, { atOffset })`) — foundation for KV cache
-- [ ] Repeat-interleave op — for GQA broadcasting
+- [x] Repeat-interleave op — for GQA broadcasting
 - [ ] `functional.causalAttention(q, k, v, pastLen)` — composed helper
 - [ ] `nn.KVCache` — thin per-layer bookkeeping class
 - [ ] BPE tokenizer + chat template
@@ -45,9 +45,9 @@ Everything here goes in `src/` — generic across any decoder-only LLM (Llama, M
 - [x] Unit test + parity test.
 
 ### 2b. Repeat-interleave (for GQA)
-- [ ] `Tensor.repeatInterleave(dim, count)` — e.g. `[B, 8, T, D].repeatInterleave(1, 3) → [B, 24, T, D]` where each of the 8 heads is duplicated 3× consecutively along dim 1.
-- [ ] `REPEAT_INTERLEAVE` op across three backends.
-- [ ] Unit test + parity test.
+- [x] `Tensor.repeatInterleave(dim, count)` — e.g. `[B, 8, T, D].repeatInterleave(1, 3) → [B, 24, T, D]` where each of the 8 heads is duplicated 3× consecutively along dim 1.
+- [x] `REPEAT_INTERLEAVE` op across three backends.
+- [x] Unit test + parity test.
 
 ### 2c. Causal attention composition helper
 - [ ] `functional.causalAttention(q, k, v, pastLen = 0)` — `q [B, H, T_q, D]`, `k/v [B, H, T_k, D]` where `T_k = pastLen + T_q`. Composes: `bmm(q, k.transpose(-2, -1)) * (1/sqrt(D)) → causal_softmax(pastLen) → bmm(attn, v)`. No new kernel.

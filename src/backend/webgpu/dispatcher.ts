@@ -179,6 +179,7 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "ROPE") return this.dispatchRope(pipeline, im, outMeta, params);
     if (op === "CAUSAL_SOFTMAX") return this.dispatchCausalSoftmax(pipeline, im, outMeta, params);
     if (op === "COPY_RANGE") return this.dispatchCopyRange(pipeline, im, outMeta, params);
+    if (op === "REPEAT_INTERLEAVE") return this.dispatchRepeatInterleave(pipeline, im, outMeta, params);
     if (op === "FILL") return this.dispatchFill(pipeline, outMeta, params);
     if (op === "RANDN") return this.dispatchRandn(pipeline, outMeta);
     if (op === "EMBEDDING") return this.dispatchEmbedding(pipeline, im, outMeta, params);
@@ -571,6 +572,27 @@ export class WebGPUDispatcher implements Dispatcher {
       inputs[0].offset >>> 2,
       out.offset >>> 2,
       dstOffset,
+      count,
+    ]);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(count / ELEMENTWISE_TILE), 1);
+  }
+
+  private dispatchRepeatInterleave(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const count = required(params.count, "count");
+    const axisSize = required(params.axisSize, "axisSize");
+    const innerSize = required(params.innerSize, "innerSize");
+    const repeats = required(params.repeats, "repeats");
+    const u = new Uint32Array([
+      inputs[0].offset >>> 2,
+      out.offset >>> 2,
+      axisSize,
+      innerSize,
+      repeats,
       count,
     ]);
     this.encodeAndSubmit(pipeline, u, Math.ceil(count / ELEMENTWISE_TILE), 1);

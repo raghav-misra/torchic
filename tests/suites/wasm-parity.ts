@@ -36,6 +36,7 @@ interface Results {
   rope: Float32Array;
   causal_softmax: Float32Array;
   copy_range: Float32Array;
+  repeat_interleave: Float32Array;
   conv1d_basic: Float32Array;
   conv1d_stride_pad: Float32Array;
   conv_transpose1d_basic: Float32Array;
@@ -163,6 +164,13 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
       dst.copyFrom(src, { atOffset: 8 });
       return await dst.toArray();
     })(),
+    repeat_interleave: await (async () => {
+      const B = 1, Hkv = 8, T = 4, D = 16;
+      const data = new Float32Array(B * Hkv * T * D);
+      for (let i = 0; i < data.length; i++) data[i] = Math.sin(i * 0.037);
+      const kv = Tensor.fromData(data, [B, Hkv, T, D]);
+      return await kv.repeatInterleave(1, 3).toArray();
+    })(),
     conv1d_basic: await convIn.conv1d(convW, convB, {}).toArray(),
     conv1d_stride_pad: await convIn
       .conv1d(convW, convB, { stride: 2, padding: 2 })
@@ -222,6 +230,7 @@ const TOLERANCES: Record<keyof Results, number> = {
   rope: 1e-5,
   causal_softmax: 1e-5,
   copy_range: 0,
+  repeat_interleave: 0,
   conv1d_basic: 1e-5,
   conv1d_stride_pad: 1e-5,
   conv_transpose1d_basic: 1e-5,

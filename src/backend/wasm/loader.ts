@@ -197,6 +197,16 @@ export interface KernelExports {
     end: number,
   ): void;
 
+  repeat_interleave(
+    inputPtr: number,
+    outputPtr: number,
+    axisSize: number,
+    inner: number,
+    repeats: number,
+    start: number,
+    end: number,
+  ): void;
+
   rms_norm2d(
     inputPtr: number,
     weightPtr: number,

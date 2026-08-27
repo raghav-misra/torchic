@@ -335,6 +335,61 @@ describe("elementwise kernels", () => {
     for (let i = 0; i < 16; i++) expect(dst[4 + i]).toBe(src[i]);
     for (let i = 20; i < 24; i++) expect(dst[i]).toBe(-7);
   });
+
+  it("repeat_interleave on 1D matches [a, b, c] -> [a, a, b, b, c, c]", () => {
+    const input = new Float32Array([10, 20, 30]);
+    const output = new Float32Array(6);
+    elementwise.repeat_interleave(input, output, 3, 1, 2, 0, 6);
+    expect(Array.from(output)).toEqual([10, 10, 20, 20, 30, 30]);
+  });
+
+  it("repeat_interleave on GQA shape [B=1, 2, T=3, D=4] with repeats=3", () => {
+    const B = 1,
+      Hkv = 2,
+      T = 3,
+      D = 4;
+    const repeats = 3;
+    const input = new Float32Array(B * Hkv * T * D);
+    for (let i = 0; i < input.length; i++) input[i] = i;
+
+    // dim=1 → axisSize=Hkv=2, inner=T*D=12, outer=B=1.
+    const axisSize = Hkv;
+    const inner = T * D;
+    const outCount = B * Hkv * repeats * T * D;
+    const output = new Float32Array(outCount);
+    elementwise.repeat_interleave(input, output, axisSize, inner, repeats, 0, outCount);
+
+    // Each head slab (T*D = 12 elements) should appear `repeats` times consecutively.
+    for (let h = 0; h < Hkv; h++) {
+      const inBase = h * inner;
+      for (let r = 0; r < repeats; r++) {
+        const outBase = (h * repeats + r) * inner;
+        for (let i = 0; i < inner; i++) {
+          expect(output[outBase + i]).toBe(input[inBase + i]);
+        }
+      }
+    }
+  });
+
+  it("repeat_interleave partitioned matches full range", () => {
+    const outer = 2,
+      axisSize = 3,
+      inner = 5,
+      repeats = 2;
+    const total = outer * axisSize * repeats * inner;
+    const input = new Float32Array(outer * axisSize * inner);
+    for (let i = 0; i < input.length; i++) input[i] = Math.sin(i * 0.31);
+
+    const outFull = new Float32Array(total);
+    elementwise.repeat_interleave(input, outFull, axisSize, inner, repeats, 0, total);
+
+    const outPart = new Float32Array(total);
+    const split = 17;
+    elementwise.repeat_interleave(input, outPart, axisSize, inner, repeats, 0, split);
+    elementwise.repeat_interleave(input, outPart, axisSize, inner, repeats, split, total);
+
+    for (let i = 0; i < total; i++) expect(outPart[i]).toBe(outFull[i]);
+  });
 });
 
 describe("reductions", () => {

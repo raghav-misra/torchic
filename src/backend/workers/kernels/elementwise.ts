@@ -520,6 +520,27 @@ export function copy_range(
   for (let i = start; i < end; i++) dst[dstOffset + i] = src[i];
 }
 
+export function repeat_interleave(
+  input: Float32Array,
+  output: Float32Array,
+  axisSize: number,
+  inner: number,
+  repeats: number,
+  start: number,
+  end: number,
+) {
+  const strideIn = axisSize * inner;
+  const dOut = axisSize * repeats;
+  for (let k = start; k < end; k++) {
+    const innerIdx = k % inner;
+    const rest = (k - innerIdx) / inner;
+    const dOutIdx = rest % dOut;
+    const o = (rest - dOutIdx) / dOut;
+    const dInIdx = (dOutIdx - (dOutIdx % repeats)) / repeats;
+    output[k] = input[o * strideIn + dInIdx * inner + innerIdx];
+  }
+}
+
 // Tanh approximation used by BERT / GPT-2 / Kokoro.
 // gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
 const GELU_C = 0.7978845608028654; // sqrt(2/π)
