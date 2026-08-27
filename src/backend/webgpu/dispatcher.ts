@@ -176,6 +176,8 @@ export class WebGPUDispatcher implements Dispatcher {
     if (op === "SOFTMAX" || op === "SOFTMAX_BACKWARD")
       return this.dispatchSoftmax(pipeline, op, im, outMeta, params);
     if (op === "RMS_NORM") return this.dispatchRmsNorm(pipeline, im, outMeta, params);
+    if (op === "ROPE") return this.dispatchRope(pipeline, im, outMeta, params);
+    if (op === "CAUSAL_SOFTMAX") return this.dispatchCausalSoftmax(pipeline, im, outMeta, params);
     if (op === "FILL") return this.dispatchFill(pipeline, outMeta, params);
     if (op === "RANDN") return this.dispatchRandn(pipeline, outMeta);
     if (op === "EMBEDDING") return this.dispatchEmbedding(pipeline, im, outMeta, params);
@@ -510,6 +512,49 @@ export class WebGPUDispatcher implements Dispatcher {
     new Float32Array(u.buffer)[5] = eps;
     u[6] = 0;
     u[7] = m;
+    this.encodeAndSubmit(pipeline, u, Math.ceil(m / ROW_TILE), 1);
+  }
+
+  private dispatchRope(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const m = required(params.m, "m");
+    const tSeq = required(params.tSeq, "tSeq");
+    const dHalf = required(params.dHalf, "dHalf");
+    const u = new Uint32Array([
+      inputs[0].offset >>> 2,
+      inputs[1].offset >>> 2,
+      inputs[2].offset >>> 2,
+      out.offset >>> 2,
+      tSeq,
+      dHalf,
+      0,
+      m,
+    ]);
+    this.encodeAndSubmit(pipeline, u, Math.ceil(m / ROW_TILE), 1);
+  }
+
+  private dispatchCausalSoftmax(
+    pipeline: GPUComputePipeline,
+    inputs: TensorMetadata[],
+    out: TensorMetadata,
+    params: OpParams,
+  ) {
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const pastLen = params.pastLen ?? 0;
+    const u = new Uint32Array([
+      inputs[0].offset >>> 2,
+      out.offset >>> 2,
+      m,
+      n,
+      pastLen,
+      0,
+      m,
+    ]);
     this.encodeAndSubmit(pipeline, u, Math.ceil(m / ROW_TILE), 1);
   }
 

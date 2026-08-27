@@ -447,6 +447,69 @@ export function rms_norm2d(
   }
 }
 
+export function rope(
+  x: Float32Array,
+  cos: Float32Array,
+  sin: Float32Array,
+  out: Float32Array,
+  tSeq: number,
+  dHalf: number,
+  startRow: number,
+  endRow: number,
+) {
+  const d = 2 * dHalf;
+  for (let r = startRow; r < endRow; r++) {
+    const time = r % tSeq;
+    const xBase = r * d;
+    const csBase = time * dHalf;
+    for (let i = 0; i < dHalf; i++) {
+      const a = x[xBase + i];
+      const b = x[xBase + i + dHalf];
+      const c = cos[csBase + i];
+      const s = sin[csBase + i];
+      out[xBase + i] = a * c - b * s;
+      out[xBase + i + dHalf] = a * s + b * c;
+    }
+  }
+}
+
+export function causal_softmax2d(
+  input: Float32Array,
+  out: Float32Array,
+  m: number,
+  n: number,
+  pastLen: number,
+  startRow: number,
+  endRow: number,
+) {
+  for (let r = startRow; r < endRow; r++) {
+    const base = r * n;
+    let allowed = pastLen + r;
+    if (allowed >= n) allowed = n - 1;
+    const endCol = allowed + 1;
+
+    let maxv = -Infinity;
+    for (let c = 0; c < endCol; c++) {
+      const v = input[base + c];
+      if (v > maxv) maxv = v;
+    }
+    let sum = 0;
+    for (let c = 0; c < endCol; c++) {
+      const e = Math.exp(input[base + c] - maxv);
+      out[base + c] = e;
+      sum += e;
+    }
+    if (sum !== 0) {
+      const inv = 1 / sum;
+      for (let c = 0; c < endCol; c++) out[base + c] *= inv;
+    } else {
+      const v = 1 / endCol;
+      for (let c = 0; c < endCol; c++) out[base + c] = v;
+    }
+    for (let c = endCol; c < n; c++) out[base + c] = 0;
+  }
+}
+
 // Tanh approximation used by BERT / GPT-2 / Kokoro.
 // gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
 const GELU_C = 0.7978845608028654; // sqrt(2/π)

@@ -14,6 +14,8 @@ import lstmStepWgsl from "./shaders/lstm_step.wgsl?raw";
 import snakeWgsl from "./shaders/snake.wgsl?raw";
 import styleAffineWgsl from "./shaders/style_affine.wgsl?raw";
 import rmsNormWgsl from "./shaders/rms_norm.wgsl?raw";
+import ropeWgsl from "./shaders/rope.wgsl?raw";
+import causalSoftmaxWgsl from "./shaders/causal_softmax.wgsl?raw";
 
 const MODULE_SOURCE: Record<string, string> = {
   binary: binaryWgsl,
@@ -32,6 +34,8 @@ const MODULE_SOURCE: Record<string, string> = {
   snake: snakeWgsl,
   style_affine: styleAffineWgsl,
   rms_norm: rmsNormWgsl,
+  rope: ropeWgsl,
+  causal_softmax: causalSoftmaxWgsl,
 };
 
 // Op → (shader module, entry point). Entry points in WGSL can't shadow certain
@@ -87,6 +91,8 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   SNAKE_1D: { module: "snake", entry: "main" },
   STYLE_AFFINE: { module: "style_affine", entry: "main" },
   RMS_NORM: { module: "rms_norm", entry: "rms_norm" },
+  ROPE: { module: "rope", entry: "rope" },
+  CAUSAL_SOFTMAX: { module: "causal_softmax", entry: "causal_softmax" },
 };
 
 export interface Pipelines {

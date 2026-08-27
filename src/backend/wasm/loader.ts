@@ -179,6 +179,16 @@ export interface KernelExports {
     endRow: number,
   ): void;
 
+  causal_softmax2d(
+    inputPtr: number,
+    outputPtr: number,
+    m: number,
+    n: number,
+    pastLen: number,
+    startRow: number,
+    endRow: number,
+  ): void;
+
   rms_norm2d(
     inputPtr: number,
     weightPtr: number,
@@ -186,6 +196,17 @@ export interface KernelExports {
     m: number,
     n: number,
     eps: number,
+    startRow: number,
+    endRow: number,
+  ): void;
+
+  rope(
+    xPtr: number,
+    cosPtr: number,
+    sinPtr: number,
+    outPtr: number,
+    tSeq: number,
+    dHalf: number,
     startRow: number,
     endRow: number,
   ): void;

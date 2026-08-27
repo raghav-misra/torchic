@@ -38,6 +38,11 @@ export interface OpParams {
   negativeSlope?: number;
   // Normalization params.
   eps?: number;
+  // RoPE params.
+  tSeq?: number;
+  dHalf?: number;
+  // Causal softmax params.
+  pastLen?: number;
   // Concat params.
   outerSize?: number;
   inAxisSize?: number;

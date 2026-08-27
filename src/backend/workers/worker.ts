@@ -567,6 +567,51 @@ function executeKernel(
     return;
   }
 
+  if (op === "ROPE") {
+    const m = required(params.m, "m");
+    const tSeq = required(params.tSeq, "tSeq");
+    const dHalf = required(params.dHalf, "dHalf");
+    const rowsPerWorker = Math.ceil(m / totalWorkers);
+    const startRow = workerIndex * rowsPerWorker;
+    const endRow = Math.min(startRow + rowsPerWorker, m);
+
+    if (startRow < m) {
+      elementwise.rope(
+        inputViews[0],
+        inputViews[1],
+        inputViews[2],
+        outputView,
+        tSeq,
+        dHalf,
+        startRow,
+        endRow,
+      );
+    }
+    return;
+  }
+
+  if (op === "CAUSAL_SOFTMAX") {
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const pastLen = params.pastLen ?? 0;
+    const rowsPerWorker = Math.ceil(m / totalWorkers);
+    const startRow = workerIndex * rowsPerWorker;
+    const endRow = Math.min(startRow + rowsPerWorker, m);
+
+    if (startRow < m) {
+      elementwise.causal_softmax2d(
+        inputViews[0],
+        outputView,
+        m,
+        n,
+        pastLen,
+        startRow,
+        endRow,
+      );
+    }
+    return;
+  }
+
   if (op === "TRANSPOSE") {
     const m = required(params.m, "m");
     const n = required(params.n, "n");

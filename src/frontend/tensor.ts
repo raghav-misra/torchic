@@ -576,6 +576,58 @@ export class Tensor {
     return new Tensor(outId, this.shape.slice(), false);
   }
 
+  // Half-split RoPE (HF Llama convention). Input is [..., T, D] with D even;
+  // cos/sin caches are [T, D/2] where T matches the seq dim. Position offset
+  // is handled by the caller via slicing cos/sin. Inference-only.
+  rope(cos: Tensor, sin: Tensor): Tensor {
+    const rank = this.shape.length;
+    if (rank < 2) throw new Error(`rope: needs at least 2D input, got shape [${this.shape}]`);
+    const d = this.shape[rank - 1];
+    const tSeq = this.shape[rank - 2];
+    if (d % 2 !== 0) throw new Error(`rope: last dim must be even, got ${d}`);
+    const dHalf = d / 2;
+    if (cos.shape.length !== 2 || cos.shape[0] !== tSeq || cos.shape[1] !== dHalf) {
+      throw new Error(`rope: cos shape must be [${tSeq}, ${dHalf}], got [${cos.shape}]`);
+    }
+    if (sin.shape.length !== 2 || sin.shape[0] !== tSeq || sin.shape[1] !== dHalf) {
+      throw new Error(`rope: sin shape must be [${tSeq}, ${dHalf}], got [${sin.shape}]`);
+    }
+
+    const x = this.materialize();
+    const c = cos.materialize();
+    const s = sin.materialize();
+    let n = 1;
+    for (let i = 0; i < rank - 2; i++) n *= this.shape[i];
+    const m = n * tSeq;
+
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, x.numElements() * 4);
+    getDispatcher().runOp("ROPE", [x.id, c.id, s.id], outId, { m, tSeq, dHalf });
+
+    if (x !== this) x.dispose();
+    if (c !== cos) c.dispose();
+    if (s !== sin) s.dispose();
+    return new Tensor(outId, this.shape.slice(), false);
+  }
+
+  // Causal-masked softmax over the last dim. Row r sees only cols [0, pastLen+r]
+  // (clamped to n-1); disallowed cols are zeroed. pastLen=0 is standard prefill
+  // where scores are square [T, T]. Inference-only.
+  causal_softmax(pastLen = 0): Tensor {
+    const rank = this.shape.length;
+    if (rank < 2) throw new Error(`causal_softmax: needs at least 2D input, got shape [${this.shape}]`);
+    const n = this.shape[rank - 1];
+    const m = this.numElements() / n;
+
+    const x = this.materialize();
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, x.numElements() * 4);
+    getDispatcher().runOp("CAUSAL_SOFTMAX", [x.id], outId, { m, n, pastLen });
+
+    if (x !== this) x.dispose();
+    return new Tensor(outId, this.shape.slice(), false);
+  }
+
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
       throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);

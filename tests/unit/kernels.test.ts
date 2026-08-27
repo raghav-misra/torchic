@@ -185,6 +185,130 @@ describe("elementwise kernels", () => {
     for (let c = 0; c < n; c++) expect(out[n + c]).not.toBe(-999);
     for (let c = 0; c < n; c++) expect(out[2 * n + c]).not.toBe(-999);
   });
+
+  it("rope matches reference rotation and cycles through positions", () => {
+    const N = 2,
+      T = 5,
+      D = 8;
+    const dHalf = D / 2;
+    const totalRows = N * T;
+
+    const x = randFloat32(totalRows * D, 91);
+    const cos = new Float32Array(T * dHalf);
+    const sin = new Float32Array(T * dHalf);
+    const theta = 10000;
+    for (let i = 0; i < dHalf; i++) {
+      const invFreq = Math.pow(theta, (-2 * i) / D);
+      for (let t = 0; t < T; t++) {
+        cos[t * dHalf + i] = Math.cos(t * invFreq);
+        sin[t * dHalf + i] = Math.sin(t * invFreq);
+      }
+    }
+    const out = new Float32Array(totalRows * D);
+    elementwise.rope(x, cos, sin, out, T, dHalf, 0, totalRows);
+
+    for (let r = 0; r < totalRows; r++) {
+      const t = r % T;
+      for (let i = 0; i < dHalf; i++) {
+        const a = x[r * D + i];
+        const b = x[r * D + i + dHalf];
+        const c = cos[t * dHalf + i];
+        const s = sin[t * dHalf + i];
+        expect(out[r * D + i]).toBeCloseTo(a * c - b * s, 5);
+        expect(out[r * D + i + dHalf]).toBeCloseTo(a * s + b * c, 5);
+      }
+    }
+  });
+
+  it("rope preserves L2 norm per row (rotation is orthogonal)", () => {
+    const T = 4,
+      D = 16;
+    const dHalf = D / 2;
+    const x = randFloat32(T * D, 123);
+    const cos = new Float32Array(T * dHalf);
+    const sin = new Float32Array(T * dHalf);
+    for (let t = 0; t < T; t++) {
+      for (let i = 0; i < dHalf; i++) {
+        const angle = t * Math.pow(10000, (-2 * i) / D);
+        cos[t * dHalf + i] = Math.cos(angle);
+        sin[t * dHalf + i] = Math.sin(angle);
+      }
+    }
+    const out = new Float32Array(T * D);
+    elementwise.rope(x, cos, sin, out, T, dHalf, 0, T);
+
+    for (let r = 0; r < T; r++) {
+      let inNorm = 0,
+        outNorm = 0;
+      for (let d = 0; d < D; d++) {
+        inNorm += x[r * D + d] ** 2;
+        outNorm += out[r * D + d] ** 2;
+      }
+      expect(outNorm).toBeCloseTo(inNorm, 4);
+    }
+  });
+
+  it("causal_softmax2d zeros disallowed columns and rows sum to 1", () => {
+    const m = 6,
+      n = 6;
+    const inArr = randFloat32(m * n, 55);
+    const out = new Float32Array(m * n);
+    elementwise.causal_softmax2d(inArr, out, m, n, 0, 0, m);
+
+    for (let r = 0; r < m; r++) {
+      let sum = 0;
+      for (let c = 0; c < n; c++) {
+        if (c > r) {
+          expect(out[r * n + c]).toBe(0);
+        } else {
+          expect(out[r * n + c]).toBeGreaterThan(0);
+          sum += out[r * n + c];
+        }
+      }
+      expect(sum).toBeCloseTo(1, 5);
+    }
+  });
+
+  it("causal_softmax2d with pastLen shifts the allowed window", () => {
+    const m = 3,
+      n = 10,
+      pastLen = 4;
+    const inArr = randFloat32(m * n, 88);
+    const out = new Float32Array(m * n);
+    elementwise.causal_softmax2d(inArr, out, m, n, pastLen, 0, m);
+
+    for (let r = 0; r < m; r++) {
+      const allowed = pastLen + r;
+      for (let c = 0; c < n; c++) {
+        if (c > allowed) expect(out[r * n + c]).toBe(0);
+      }
+      let sum = 0;
+      for (let c = 0; c <= allowed; c++) sum += out[r * n + c];
+      expect(sum).toBeCloseTo(1, 5);
+    }
+  });
+
+  it("causal_softmax2d matches (scores + upper_triangle_-inf) → softmax", () => {
+    const m = 5,
+      n = 5;
+    const inArr = randFloat32(m * n, 191);
+    const masked = new Float32Array(m * n);
+    for (let r = 0; r < m; r++) {
+      for (let c = 0; c < n; c++) {
+        masked[r * n + c] = c > r ? -Infinity : inArr[r * n + c];
+      }
+    }
+    const ref = new Float32Array(m * n);
+    elementwise.softmax2d(masked, ref, m, n, 0, m);
+
+    const out = new Float32Array(m * n);
+    elementwise.causal_softmax2d(inArr, out, m, n, 0, 0, m);
+
+    for (let i = 0; i < m * n; i++) {
+      // NaN from softmax(all -inf) not possible here since row 0 has one allowed col.
+      expect(out[i]).toBeCloseTo(ref[i], 5);
+    }
+  });
 });
 
 describe("reductions", () => {

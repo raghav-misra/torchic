@@ -4,12 +4,8 @@ Serve Llama 3.2 (1B for correctness, 3B for real) end-to-end in-browser on top o
 
 ## Gap check
 
-- [x] SiLU, softmax, embedding, matmul, Linear, LayerNorm, non-causal MHA
-- [x] safetensors F32/BF16/F16 loader
-- [x] Autograd graph (unused for inference — bypass)
-- [ ] RMSNorm
-- [ ] RoPE (rotary position embeddings)
-- [ ] Causal-masked softmax
+- [x] RoPE (rotary position embeddings)
+- [x] Causal-masked softmax
 - [ ] GQA-aware attention
 - [ ] KV cache
 - [ ] BPE tokenizer + chat template
@@ -29,9 +25,10 @@ Serve Llama 3.2 (1B for correctness, 3B for real) end-to-end in-browser on top o
 - [x] `rms_norm` kernel — WASM (Rust SIMD)
 - [x] `rms_norm` kernel — WebGPU (WGSL)
 - [x] `RMSNorm` layer + parity tests (workers ↔ wasm ↔ webgpu, tol 1e-5)
-- [ ] `rope_apply(x, cos_cache, sin_cache, positions)` — precompute cos/sin at `[max_seq_len, head_dim/2]`, rotate pairs `(x[2i], x[2i+1])`
-- [ ] RoPE kernel across all three backends
-- [ ] Causal-masked softmax variant (fused `-inf` above diagonal, or masked_softmax with explicit offset)
+- [x] `rope_apply(x, cos, sin)` — half-split HF convention, `[..., T, D]` input, `[T, D/2]` caches
+- [x] RoPE kernel across all three backends
+- [x] `precomputeRope(maxSeqLen, headDim, theta)` helper + parity tests
+- [x] Causal-masked softmax (fused kernel, `pastLen` param for prefill continuation)
 - [ ] SwiGLU FFN layer (no new kernel — `silu(gate(x)) * up(x) -> down`)
 - [ ] Parity tests for each new op against a reference (numpy or transformers.js)## Phase 2 — causal GQA attention with KV cache
 

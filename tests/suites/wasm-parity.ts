@@ -33,6 +33,8 @@ interface Results {
   sin: Float32Array;
   cos: Float32Array;
   rms_norm: Float32Array;
+  rope: Float32Array;
+  causal_softmax: Float32Array;
   conv1d_basic: Float32Array;
   conv1d_stride_pad: Float32Array;
   conv_transpose1d_basic: Float32Array;
@@ -127,6 +129,32 @@ async function runOps(backend: Backend, threads: number): Promise<Results> {
     sin: await a.sin().toArray(),
     cos: await a.cos().toArray(),
     rms_norm: await a.rms_norm(Tensor.fromData(Array.from({ length: 64 }, (_, i) => 0.5 + 0.02 * i), [64]), 1e-5).toArray(),
+    rope: await (async () => {
+      const N = 2, T = 8, D = 32;
+      const dHalf = D / 2;
+      const xData = new Float32Array(N * T * D);
+      for (let i = 0; i < xData.length; i++) xData[i] = Math.sin(i * 0.037);
+      const cosData = new Float32Array(T * dHalf);
+      const sinData = new Float32Array(T * dHalf);
+      for (let i = 0; i < dHalf; i++) {
+        const invFreq = Math.pow(10000, (-2 * i) / D);
+        for (let t = 0; t < T; t++) {
+          cosData[t * dHalf + i] = Math.cos(t * invFreq);
+          sinData[t * dHalf + i] = Math.sin(t * invFreq);
+        }
+      }
+      const x = Tensor.fromData(xData, [N, T, D]);
+      const cos = Tensor.fromData(cosData, [T, dHalf]);
+      const sin = Tensor.fromData(sinData, [T, dHalf]);
+      return await x.rope(cos, sin).toArray();
+    })(),
+    causal_softmax: await (async () => {
+      const T = 32;
+      const scoresData = new Float32Array(T * T);
+      for (let i = 0; i < scoresData.length; i++) scoresData[i] = Math.sin(i * 0.041) * 2.0;
+      const scores = Tensor.fromData(scoresData, [T, T]);
+      return await scores.causal_softmax().toArray();
+    })(),
     conv1d_basic: await convIn.conv1d(convW, convB, {}).toArray(),
     conv1d_stride_pad: await convIn
       .conv1d(convW, convB, { stride: 2, padding: 2 })
@@ -183,6 +211,8 @@ const TOLERANCES: Record<keyof Results, number> = {
   sin: 1e-6,
   cos: 1e-6,
   rms_norm: 1e-5,
+  rope: 1e-5,
+  causal_softmax: 1e-5,
   conv1d_basic: 1e-5,
   conv1d_stride_pad: 1e-5,
   conv_transpose1d_basic: 1e-5,
