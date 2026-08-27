@@ -4,8 +4,6 @@ Serve Llama 3.2 (1B for correctness, 3B for real) end-to-end in-browser on top o
 
 ## Gap check
 
-- [x] RoPE (rotary position embeddings)
-- [x] Causal-masked softmax
 - [ ] GQA-aware attention
 - [ ] KV cache
 - [ ] BPE tokenizer + chat template
