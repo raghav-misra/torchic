@@ -36,6 +36,8 @@ export interface OpParams {
   hasBias?: boolean;
   // Activation params.
   negativeSlope?: number;
+  // Normalization params.
+  eps?: number;
   // Concat params.
   outerSize?: number;
   inAxisSize?: number;

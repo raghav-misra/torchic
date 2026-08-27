@@ -179,6 +179,17 @@ export interface KernelExports {
     endRow: number,
   ): void;
 
+  rms_norm2d(
+    inputPtr: number,
+    weightPtr: number,
+    outputPtr: number,
+    m: number,
+    n: number,
+    eps: number,
+    startRow: number,
+    endRow: number,
+  ): void;
+
   embedding(
     weightsPtr: number,
     indicesPtr: number,

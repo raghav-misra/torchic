@@ -422,6 +422,31 @@ export function softmax_backward2d(
   }
 }
 
+export function rms_norm2d(
+  input: Float32Array,
+  weight: Float32Array,
+  out: Float32Array,
+  m: number,
+  n: number,
+  eps: number,
+  startRow: number,
+  endRow: number,
+) {
+  const invN = 1.0 / n;
+  for (let r = startRow; r < endRow; r++) {
+    const base = r * n;
+    let sumsq = 0.0;
+    for (let c = 0; c < n; c++) {
+      const v = input[base + c];
+      sumsq += v * v;
+    }
+    const invRms = 1.0 / Math.sqrt(sumsq * invN + eps);
+    for (let c = 0; c < n; c++) {
+      out[base + c] = input[base + c] * invRms * weight[c];
+    }
+  }
+}
+
 // Tanh approximation used by BERT / GPT-2 / Kokoro.
 // gelu(x) = 0.5 * x * (1 + tanh(sqrt(2/π) * (x + 0.044715 * x^3)))
 const GELU_C = 0.7978845608028654; // sqrt(2/π)

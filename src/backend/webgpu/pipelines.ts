@@ -13,6 +13,7 @@ import concatWgsl from "./shaders/concat.wgsl?raw";
 import lstmStepWgsl from "./shaders/lstm_step.wgsl?raw";
 import snakeWgsl from "./shaders/snake.wgsl?raw";
 import styleAffineWgsl from "./shaders/style_affine.wgsl?raw";
+import rmsNormWgsl from "./shaders/rms_norm.wgsl?raw";
 
 const MODULE_SOURCE: Record<string, string> = {
   binary: binaryWgsl,
@@ -30,6 +31,7 @@ const MODULE_SOURCE: Record<string, string> = {
   lstm_step: lstmStepWgsl,
   snake: snakeWgsl,
   style_affine: styleAffineWgsl,
+  rms_norm: rmsNormWgsl,
 };
 
 // Op → (shader module, entry point). Entry points in WGSL can't shadow certain
@@ -84,6 +86,7 @@ const OP_TO_ENTRY: Record<string, { module: string; entry: string }> = {
   LSTM_STEP: { module: "lstm_step", entry: "main" },
   SNAKE_1D: { module: "snake", entry: "main" },
   STYLE_AFFINE: { module: "style_affine", entry: "main" },
+  RMS_NORM: { module: "rms_norm", entry: "rms_norm" },
 };
 
 export interface Pipelines {

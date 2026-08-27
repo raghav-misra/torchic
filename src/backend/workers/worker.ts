@@ -544,6 +544,29 @@ function executeKernel(
     return;
   }
 
+  if (op === "RMS_NORM") {
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const eps = required(params.eps, "eps");
+    const rowsPerWorker = Math.ceil(m / totalWorkers);
+    const startRow = workerIndex * rowsPerWorker;
+    const endRow = Math.min(startRow + rowsPerWorker, m);
+
+    if (startRow < m) {
+      elementwise.rms_norm2d(
+        inputViews[0],
+        inputViews[1],
+        outputView,
+        m,
+        n,
+        eps,
+        startRow,
+        endRow,
+      );
+    }
+    return;
+  }
+
   if (op === "TRANSPOSE") {
     const m = required(params.m, "m");
     const n = required(params.n, "n");

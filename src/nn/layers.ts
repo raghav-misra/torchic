@@ -150,6 +150,29 @@ export class LayerNorm extends Module {
   }
 }
 
+// RMSNorm over the last dim, as used by Llama / Mistral / Qwen. No bias, no
+// mean subtraction. Fused kernel — inference-only for now (no backward).
+export class RMSNorm extends Module {
+  weight: Tensor;
+  private eps: number;
+  private dim: number;
+
+  constructor(dim: number, eps = 1e-5) {
+    super();
+    this.dim = dim;
+    this.eps = eps;
+    this.weight = this.param("weight", Tensor.ones([dim], true));
+  }
+
+  forward(x: Tensor): Tensor {
+    const last = x.shape[x.shape.length - 1];
+    if (last !== this.dim) {
+      throw new Error(`RMSNorm: expected last dim ${this.dim}, got ${last}`);
+    }
+    return x.rms_norm(this.weight, this.eps);
+  }
+}
+
 // GroupNorm over a [B, C, ...] tensor. Splits C into `numGroups`, computes
 // mean/var over (channels-per-group * spatial dims), applies per-channel
 // affine. Matches PyTorch semantics; composed from primitives.

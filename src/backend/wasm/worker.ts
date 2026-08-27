@@ -710,6 +710,28 @@ function executeKernel(
     return;
   }
 
+  if (op === "RMS_NORM") {
+    const m = required(params.m, "m");
+    const n = required(params.n, "n");
+    const eps = required(params.eps, "eps");
+    const rowsPerWorker = Math.ceil(m / totalWorkers);
+    const startRow = workerIndex * rowsPerWorker;
+    const endRow = Math.min(startRow + rowsPerWorker, m);
+    if (startRow >= m) return;
+
+    exports.rms_norm2d(
+      inputs[0].offset,
+      inputs[1].offset,
+      output.offset,
+      m,
+      n,
+      eps,
+      startRow,
+      endRow,
+    );
+    return;
+  }
+
   if (op === "SUM_PARTIAL") {
     const total = inputs[0].size / 4;
     const chunk = Math.ceil(total / totalWorkers);

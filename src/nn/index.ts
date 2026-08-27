@@ -17,6 +17,7 @@ export {
   Snake1D,
   lstmForward,
   sinusoidalPositionalEncoding,
+  RMSNorm,
 } from "./layers";
 export { scaledRandn, kaimingStd } from "./init";
 export * as functional from "./functional";

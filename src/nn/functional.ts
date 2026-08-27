@@ -34,6 +34,10 @@ export function silu(x: Tensor): Tensor {
   return x.silu();
 }
 
+export function rms_norm(x: Tensor, weight: Tensor, eps = 1e-5): Tensor {
+  return x.rms_norm(weight, eps);
+}
+
 export function softmax(x: Tensor, axis = -1): Tensor {
   return x.softmax(axis);
 }

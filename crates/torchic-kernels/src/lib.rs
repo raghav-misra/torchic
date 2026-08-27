@@ -5,6 +5,7 @@ mod elementwise;
 mod embedding;
 mod matmul;
 mod reductions;
+mod rms_norm;
 mod softmax;
 mod transpose;
 mod conv;

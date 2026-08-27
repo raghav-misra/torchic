@@ -552,6 +552,30 @@ export class Tensor {
     return this.runUnaryOp("SILU");
   }
 
+  // RMSNorm over the last dim: y = x * rsqrt(mean(x²) + eps) * weight.
+  // Inference-only (no autograd wiring).
+  rms_norm(weight: Tensor, eps: number): Tensor {
+    const rank = this.shape.length;
+    if (rank < 1) throw new Error(`rms_norm: needs at least 1D input, got shape [${this.shape}]`);
+    const n = this.shape[rank - 1];
+    const weightNumel = weight.shape.reduce((a, b) => a * b, 1);
+    if (weightNumel !== n) {
+      throw new Error(`rms_norm: weight numel ${weightNumel} must equal last dim ${n}`);
+    }
+    const x = this.materialize();
+    const w = weight.materialize();
+    let m = 1;
+    for (let i = 0; i < rank - 1; i++) m *= this.shape[i];
+
+    const outId = getDispatcher().nextTensorId();
+    getDispatcher().allocate(outId, x.numElements() * 4);
+    getDispatcher().runOp("RMS_NORM", [x.id, w.id], outId, { m, n, eps });
+
+    if (x !== this) x.dispose();
+    if (w !== weight) w.dispose();
+    return new Tensor(outId, this.shape.slice(), false);
+  }
+
   matmul(other: Tensor): Tensor {
     if (this.shape.length !== 2 || other.shape.length !== 2) {
       throw new Error(`MatMul requires 2D tensors. Got ${this.shape} and ${other.shape}`);

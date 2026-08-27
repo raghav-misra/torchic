@@ -146,6 +146,45 @@ describe("elementwise kernels", () => {
       expect(s).toBeCloseTo(0, 5);
     }
   });
+
+  it("rms_norm2d matches reference and respects weight", () => {
+    const m = 6,
+      n = 11,
+      eps = 1e-5;
+    const inArr = randFloat32(m * n, 33);
+    const weight = new Float32Array(n);
+    for (let i = 0; i < n; i++) weight[i] = 0.5 + 0.1 * i;
+
+    const out = new Float32Array(m * n);
+    elementwise.rms_norm2d(inArr, weight, out, m, n, eps, 0, m);
+
+    for (let r = 0; r < m; r++) {
+      let sumsq = 0;
+      for (let c = 0; c < n; c++) sumsq += inArr[r * n + c] ** 2;
+      const invRms = 1 / Math.sqrt(sumsq / n + eps);
+      for (let c = 0; c < n; c++) {
+        const expected = inArr[r * n + c] * invRms * weight[c];
+        expect(out[r * n + c]).toBeCloseTo(expected, 5);
+      }
+    }
+  });
+
+  it("rms_norm2d partial row range only writes assigned rows", () => {
+    const m = 4,
+      n = 8,
+      eps = 1e-5;
+    const inArr = randFloat32(m * n, 77);
+    const weight = new Float32Array(n).fill(1);
+    const out = new Float32Array(m * n);
+    for (let i = 0; i < out.length; i++) out[i] = -999;
+
+    elementwise.rms_norm2d(inArr, weight, out, m, n, eps, 1, 3);
+
+    for (let c = 0; c < n; c++) expect(out[c]).toBe(-999);
+    for (let c = 0; c < n; c++) expect(out[3 * n + c]).toBe(-999);
+    for (let c = 0; c < n; c++) expect(out[n + c]).not.toBe(-999);
+    for (let c = 0; c < n; c++) expect(out[2 * n + c]).not.toBe(-999);
+  });
 });
 
 describe("reductions", () => {
