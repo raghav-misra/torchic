@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>torchic: llama 3.2 parity bench</title>
+    <style>
+      body {
+        font-family: ui-monospace, Menlo, Consolas, monospace;
+        margin: 0;
+        padding: 12px;
+        background: #111;
+        color: #ddd;
+      }
+      pre { white-space: pre-wrap; word-break: break-word; }
+      #status { color: #6cf; }
+      .ok { color: #7fdf7f; }
+      .fail { color: #ff6f6f; }
+    </style>
+  </head>
+  <body>
+    <div id="status">boot…</div>
+    <pre id="log"></pre>
+    <input type="file" id="model-input" accept=".safetensors" />
+    <input type="file" id="ref-input" accept=".safetensors" />
+    <script type="module" src="./llama-bench.ts"></script>
+  </body>
+</html>
